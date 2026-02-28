@@ -1,0 +1,304 @@
+{
+  "api_version": "pinokio.plugin/v1",
+  "id": "pinokio.database",
+  "name": "Database Core",
+  "version": "1.0.0",
+  "description": "Postgres service with split read/write CRUD database agents.",
+  "runtime": {
+    "mode": "container",
+    "requires_container": false,
+    "unsafe_host_access": false
+  },
+  "extends": {
+    "agents": [
+      "postgres_agent",
+      "db_router_agent",
+      "db_read_agent",
+      "db_write_agent",
+      "db_create_agent",
+      "db_update_agent",
+      "db_delete_agent"
+    ],
+    "containers": ["postgres_main"],
+    "navigation": [],
+    "settings": ["database"],
+    "pages": [],
+    "resources": [
+      "plugin:postgres_agent",
+      "plugin:db_router_agent",
+      "plugin:db_read_agent",
+      "plugin:db_write_agent",
+      "plugin:db_create_agent",
+      "plugin:db_update_agent",
+      "plugin:db_delete_agent"
+    ],
+    "hooks": []
+  },
+  "plugins": [
+    {
+      "name": "postgres_agent",
+      "command": "node plugins/postgres-agent-plugin.mjs",
+      "host_only": true,
+      "allowed_actions": ["create", "read", "update", "delete"],
+      "managed_only": false,
+      "dependencies": [],
+      "capabilities": {
+        "allow_spawn_child": false,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": true,
+        "read": true,
+        "update": true,
+        "delete": true,
+        "spawn_child": false,
+        "hook_extensions": false,
+        "network": true,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": false,
+        "playwright": false
+      }
+    },
+    {
+      "name": "db_router_agent",
+      "command": "node plugins/db-router-agent-plugin.mjs",
+      "host_only": false,
+      "allowed_actions": ["create", "read", "update", "delete"],
+      "managed_only": false,
+      "dependencies": ["plugin:db_read_agent", "plugin:db_write_agent"],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": true,
+        "read": true,
+        "update": true,
+        "delete": true,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": false,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": true,
+        "memory_write": true,
+        "playwright": false
+      }
+    },
+    {
+      "name": "db_read_agent",
+      "command": "PINOKIO_DB_ROLE=read node plugins/db-role-agent-plugin.mjs",
+      "host_only": false,
+      "allowed_actions": ["read"],
+      "managed_only": false,
+      "dependencies": ["plugin:postgres_agent"],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": false,
+        "read": true,
+        "update": false,
+        "delete": false,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": false,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": true,
+        "memory_write": false,
+        "playwright": false
+      }
+    },
+    {
+      "name": "db_write_agent",
+      "command": "PINOKIO_DB_ROLE=write node plugins/db-role-agent-plugin.mjs",
+      "host_only": false,
+      "allowed_actions": ["create", "update", "delete"],
+      "managed_only": false,
+      "dependencies": ["plugin:postgres_agent"],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": true,
+        "read": false,
+        "update": true,
+        "delete": true,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": false,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": true,
+        "playwright": false
+      }
+    },
+    {
+      "name": "db_create_agent",
+      "command": "PINOKIO_DB_ROLE=create node plugins/db-role-agent-plugin.mjs",
+      "host_only": false,
+      "allowed_actions": ["create"],
+      "managed_only": false,
+      "dependencies": ["plugin:postgres_agent"],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": true,
+        "read": false,
+        "update": false,
+        "delete": false,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": false,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": true,
+        "playwright": false
+      }
+    },
+    {
+      "name": "db_update_agent",
+      "command": "PINOKIO_DB_ROLE=update node plugins/db-role-agent-plugin.mjs",
+      "host_only": false,
+      "allowed_actions": ["update"],
+      "managed_only": false,
+      "dependencies": ["plugin:postgres_agent"],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": false,
+        "read": false,
+        "update": true,
+        "delete": false,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": false,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": true,
+        "playwright": false
+      }
+    },
+    {
+      "name": "db_delete_agent",
+      "command": "PINOKIO_DB_ROLE=delete node plugins/db-role-agent-plugin.mjs",
+      "host_only": false,
+      "allowed_actions": ["delete"],
+      "managed_only": false,
+      "dependencies": ["plugin:postgres_agent"],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": false,
+        "read": false,
+        "update": false,
+        "delete": true,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": false,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": true,
+        "playwright": false
+      }
+    }
+  ],
+  "services": [
+    {
+      "name": "postgres_main",
+      "enabled": true,
+      "image": "postgres:16-alpine",
+      "container_name": "pinokio-postgres-main",
+      "restart": "unless-stopped",
+      "env": {
+        "POSTGRES_USER": "pinokio",
+        "POSTGRES_PASSWORD": "pinokio_dev_password_change_me",
+        "POSTGRES_DB": "pinokio"
+      },
+      "mounts": ["pinokio-postgres-main-data:/var/lib/postgresql/data"],
+      "ports": ["127.0.0.1:55432:5432"],
+      "command": [],
+      "network_aliases": ["postgres-main", "postgres"],
+      "internal_port": 5432,
+      "healthcheck_cmd": "pg_isready -U pinokio -d pinokio",
+      "ready_timeout_secs": 90,
+      "expose_to_agents": true,
+      "expose_resources": [
+        "plugin:postgres_agent",
+        "plugin:memory_agent",
+        "plugin:db_router_agent",
+        "plugin:db_read_agent",
+        "plugin:db_write_agent",
+        "plugin:db_create_agent",
+        "plugin:db_update_agent",
+        "plugin:db_delete_agent"
+      ],
+      "agent_env": {
+        "PINOKIO_DB_CONTAINER": "pinokio-postgres-main",
+        "PGPORT": "5432",
+        "PGUSER": "pinokio",
+        "PGHOST": "postgres-main",
+        "PINOKIO_DB_PASSWORD": "pinokio_dev_password_change_me",
+        "PGDATABASE": "pinokio",
+        "PINOKIO_DB_NAME": "pinokio",
+        "PGPASSWORD": "pinokio_dev_password_change_me",
+        "PINOKIO_DB_USER": "pinokio",
+        "DATABASE_URL": "postgres://pinokio:pinokio_dev_password_change_me@postgres-main:5432/pinokio"
+      }
+    }
+  ],
+  "skills": [
+    {
+      "name": "db.router",
+      "description": "Route SQL operations through read/write role agents.",
+      "path": "plugins/skills/database/router.md",
+      "targets": {
+        "plugins": ["db_router_agent", "db_read_agent", "db_write_agent"],
+        "resources": ["plugin:db_router_agent", "plugin:db_read_agent", "plugin:db_write_agent"],
+        "actions": ["create", "read", "update", "delete"]
+      },
+      "tags": ["database", "sql", "routing"],
+      "enabled": true
+    }
+  ],
+  "install": {
+    "summary": "No additional installation steps required.",
+    "commands": []
+  }
+}

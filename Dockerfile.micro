@@ -1,0 +1,27 @@
+FROM rust:1.93-bookworm AS build
+WORKDIR /src
+ENV CARGO_NET_RETRY=10 \
+    CARGO_HTTP_TIMEOUT=120 \
+    CARGO_HTTP_MULTIPLEXING=false \
+    CARGO_REGISTRIES_CRATES_IO_PROTOCOL=sparse
+COPY Cargo.toml Cargo.lock* ./
+RUN set -eux; \
+    mkdir -p src; \
+    printf "fn main() {}\n" > src/main.rs; \
+    TARGET_TRIPLE="$(rustc -vV | awk '/^host:/ {print $2}')"; \
+    cargo fetch --locked --target "$TARGET_TRIPLE" || true
+COPY src ./src
+RUN cargo build --release --locked
+
+FROM node:24-bookworm-slim
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+LABEL io.pinokio.protocol="tcp-v2"
+LABEL io.pinokio.build_flavor="docker-build"
+COPY --from=build /src/target/release/pinokio-agent /usr/local/bin/pinokio-agent
+COPY workers ./workers
+COPY plugins ./plugins
+COPY package.json ./package.json
+ENTRYPOINT ["/usr/local/bin/pinokio-agent"]

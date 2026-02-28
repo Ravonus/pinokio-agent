@@ -1,0 +1,129 @@
+{
+  "api_version": "pinokio.plugin/v1",
+  "id": "pinokio.explorer",
+  "name": "Directory Plugin",
+  "version": "1.0.0",
+  "description": "Manager-mediated directory and file operations for sandbox chat agents with split read/write workers.",
+  "readme": "../readmes/directory.md",
+  "runtime": {
+    "mode": "container",
+    "requires_container": true,
+    "unsafe_host_access": false
+  },
+  "extends": {
+    "agents": ["explorer_agent", "explorer_read_agent", "explorer_write_agent"],
+    "containers": ["explorer-runtime"],
+    "navigation": [],
+    "settings": ["explorer"],
+    "pages": [],
+    "resources": ["plugin:explorer_agent", "plugin:explorer_read_agent", "plugin:explorer_write_agent"],
+    "hooks": []
+  },
+  "plugins": [
+    {
+      "name": "explorer_agent",
+      "command": "node plugins/explorer-agent-plugin.mjs",
+      "host_only": false,
+      "allowed_actions": ["create", "read", "update", "delete"],
+      "managed_only": true,
+      "dependencies": ["plugin:explorer_read_agent", "plugin:explorer_write_agent"],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": true,
+        "read": true,
+        "update": true,
+        "delete": true,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": false,
+        "filesystem_read": true,
+        "filesystem_write": true,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": false,
+        "playwright": false
+      }
+    },
+    {
+      "name": "explorer_read_agent",
+      "command": "node plugins/explorer-read-agent-plugin.mjs",
+      "host_only": false,
+      "allowed_actions": ["read"],
+      "managed_only": true,
+      "dependencies": ["plugin:explorer_write_agent"],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": true
+      },
+      "permissions": {
+        "create": false,
+        "read": true,
+        "update": false,
+        "delete": false,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": false,
+        "filesystem_read": true,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": false,
+        "playwright": false
+      }
+    },
+    {
+      "name": "explorer_write_agent",
+      "command": "node plugins/explorer-write-agent-plugin.mjs",
+      "host_only": false,
+      "allowed_actions": ["create", "read", "update", "delete"],
+      "managed_only": true,
+      "dependencies": [],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": true
+      },
+      "permissions": {
+        "create": true,
+        "read": true,
+        "update": true,
+        "delete": true,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": false,
+        "filesystem_read": true,
+        "filesystem_write": true,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": false,
+        "playwright": false
+      }
+    }
+  ],
+  "skills": [
+    {
+      "name": "explorer.safe_ops",
+      "description": "Constrain explorer mutations to approved paths and safe operations.",
+      "path": "plugins/skills/explorer/safe-ops.md",
+      "targets": {
+        "plugins": ["explorer_agent", "explorer_read_agent", "explorer_write_agent"],
+        "resources": ["plugin:explorer_agent", "plugin:explorer_read_agent", "plugin:explorer_write_agent"],
+        "actions": ["create", "read", "update", "delete"]
+      },
+      "tags": ["filesystem", "safety"],
+      "enabled": true
+    }
+  ],
+  "install": {
+    "summary": "No additional installation steps required.",
+    "commands": []
+  }
+}

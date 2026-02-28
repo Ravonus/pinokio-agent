@@ -1,0 +1,36 @@
+# Dependencies
+node_modules/
+
+# Rust build output
+target/
+
+# macOS
+.DS_Store
+
+# Runtime data (socket bus, temp dirs, logs)
+.pka/
+
+# Core dump
+core
+
+# Build output
+ui/.svelte-kit/
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+*.podman.env.local
+
+# Claude Code (local settings)
+.claude/
+
+# IDE
+.vscode/
+.idea/
+
+# OpenClaw (separate project)
+openclaw/
+
+# Pinokio launcher metadata
+.pinokio/

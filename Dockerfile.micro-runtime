@@ -1,0 +1,12 @@
+FROM node:24-bookworm-slim
+WORKDIR /app
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+LABEL io.pinokio.protocol="tcp-v2"
+LABEL io.pinokio.build_flavor="runtime-copy"
+COPY target/linux-runtime/pinokio-agent /usr/local/bin/pinokio-agent
+COPY workers ./workers
+COPY plugins ./plugins
+COPY package.json ./package.json
+ENTRYPOINT ["/usr/local/bin/pinokio-agent"]

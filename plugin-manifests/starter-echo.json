@@ -1,0 +1,73 @@
+{
+  "api_version": "pinokio.plugin/v1",
+  "id": "starter.echo.v1",
+  "name": "Starter Echo Agent",
+  "version": "0.1.0",
+  "description": "Minimal manifest example for the plugin installer/remover flow.",
+  "requires": {
+    "manifests": [],
+    "plugins": [],
+    "services": []
+  },
+  "runtime": {
+    "mode": "container",
+    "requires_container": true,
+    "unsafe_host_access": false
+  },
+  "extends": {
+    "agents": ["starter_echo_agent"],
+    "containers": [],
+    "navigation": [],
+    "settings": ["plugin_installer"],
+    "pages": ["/ui/plugins"],
+    "resources": ["plugin:starter_echo_agent"],
+    "hooks": []
+  },
+  "plugins": [
+    {
+      "name": "starter_echo_agent",
+      "command": "node plugins/echo-plugin.mjs",
+      "host_only": false,
+      "allowed_actions": [
+        "read",
+        "create"
+      ],
+      "managed_only": true,
+      "dependencies": [],
+      "capabilities": {
+        "allow_spawn_child": false,
+        "allow_hook_requests": false,
+        "allow_network": false,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": true,
+        "read": true,
+        "update": false,
+        "delete": false,
+        "spawn_child": false,
+        "hook_extensions": false,
+        "network": false,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": false,
+        "playwright": false
+      }
+    }
+  ],
+  "ui_extensions": [
+    {
+      "name": "starter_echo_agent",
+      "kind": "plugins",
+      "slot": "settings",
+      "title": "Starter Echo Agent",
+      "detail": "Manifest-installed starter plugin example.",
+      "route": "/ui/plugins",
+      "order": 120,
+      "enabled": true
+    }
+  ],
+  "services": []
+}
