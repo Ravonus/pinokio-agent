@@ -1,17 +1,18 @@
-import { pluginContext, spawnChild, fail } from '../sdk/typescript/pinokio-sdk.mjs';
+import { pluginContext, spawnChild, fail } from '../sdk/typescript/pinokio-sdk.ts';
+import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
 
-const SUPPORTED_ACTIONS = new Set(['create', 'read', 'update', 'delete']);
-const SUPPORTED_READ_DESIRED_ACTIONS = new Set(['read', 'info']);
+const SUPPORTED_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
+const SUPPORTED_READ_DESIRED_ACTIONS: Set<string> = new Set(['read', 'info']);
 
-function normalizeAction(value) {
+function normalizeAction(value: unknown): string {
   return String(value || '').trim().toLowerCase();
 }
 
-function parseTargetMeta(target) {
+function parseTargetMeta(target: unknown): Record<string, unknown> {
   if (typeof target !== 'string') {
     return {};
   }
-  const trimmed = target.trim();
+  const trimmed: string = target.trim();
   if (!trimmed) {
     return {};
   }
@@ -19,9 +20,9 @@ function parseTargetMeta(target) {
     return { query: trimmed };
   }
   try {
-    const parsed = JSON.parse(trimmed);
+    const parsed: unknown = JSON.parse(trimmed);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed;
+      return parsed as Record<string, unknown>;
     }
     return {};
   } catch {
@@ -29,31 +30,31 @@ function parseTargetMeta(target) {
   }
 }
 
-function asOptionalString(value) {
+function asOptionalString(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;
   }
-  const trimmed = value.trim();
+  const trimmed: string = value.trim();
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function normalizePluginResource(value, fallback, label) {
-  const resolved = asOptionalString(value) || fallback;
+function normalizePluginResource(value: unknown, fallback: string, label: string): string {
+  const resolved: string = asOptionalString(value) || fallback;
   if (!resolved.startsWith('plugin:')) {
     fail(`${label} must be a plugin resource (got '${resolved}')`);
   }
   return resolved;
 }
 
-function toInt(value, fallback, min, max) {
-  const n = Number.parseInt(String(value ?? ''), 10);
+function toInt(value: unknown, fallback: number, min: number, max: number): number {
+  const n: number = Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(n)) {
     return fallback;
   }
   return Math.min(Math.max(n, min), max);
 }
 
-function buildSummary(action) {
+function buildSummary(action: string): string {
   if (action === 'read') {
     return 'explorer discovery request';
   }
@@ -61,21 +62,21 @@ function buildSummary(action) {
 }
 
 try {
-  const { request } = pluginContext();
-  const action = normalizeAction(request.action);
+  const { request }: { request: PluginRequest } = pluginContext();
+  const action: string = normalizeAction(request.action);
   if (!SUPPORTED_ACTIONS.has(action)) {
     fail(`explorer_agent does not support action '${action}'`);
   }
 
-  const targetMeta = parseTargetMeta(request.target);
-  const targetAction = asOptionalString(targetMeta.action);
+  const targetMeta: Record<string, unknown> = parseTargetMeta(request.target);
+  const targetAction: string | null = asOptionalString(targetMeta.action);
   if (targetAction && normalizeAction(targetAction) !== action) {
     fail('target.action override is not allowed for explorer router');
   }
-  const desiredActionOverride = normalizeAction(
+  const desiredActionOverride: string = normalizeAction(
     asOptionalString(targetMeta.desired_action) || ''
   );
-  const desiredAction =
+  const desiredAction: string =
     action === 'read'
       ? desiredActionOverride || 'read'
       : action;
@@ -88,22 +89,22 @@ try {
     fail(`desired_action override '${desiredActionOverride}' does not match action '${action}'`);
   }
 
-  const readResource = normalizePluginResource(
+  const readResource: string = normalizePluginResource(
     targetMeta.read_resource,
     'plugin:explorer_read_agent',
     'read_resource'
   );
-  const writeResource = normalizePluginResource(
+  const writeResource: string = normalizePluginResource(
     targetMeta.write_resource,
     'plugin:explorer_write_agent',
     'write_resource'
   );
 
-  const scopeDir = asOptionalString(targetMeta.scope_dir || targetMeta.scope);
-  const pathHint = asOptionalString(targetMeta.path);
-  const query = asOptionalString(targetMeta.query);
+  const scopeDir: string | null = asOptionalString(targetMeta.scope_dir || targetMeta.scope);
+  const pathHint: string | null = asOptionalString(targetMeta.path);
+  const query: string | null = asOptionalString(targetMeta.query);
 
-  const readTarget = {
+  const readTarget: Record<string, unknown> = {
     scope_dir: scopeDir,
     path: pathHint,
     query,
@@ -124,7 +125,7 @@ try {
         ? targetMeta.require_handoff_matches
         : null,
     extensions: Array.isArray(targetMeta.extensions)
-      ? targetMeta.extensions.filter((value) => typeof value === 'string')
+      ? (targetMeta.extensions as unknown[]).filter((value: unknown): value is string => typeof value === 'string')
       : asOptionalString(targetMeta.extensions),
     cleanup_profile: asOptionalString(targetMeta.cleanup_profile),
     min_size_bytes:
@@ -147,7 +148,7 @@ try {
 
   spawnChild(
     {
-      summary: buildSummary(action, request.summary),
+      summary: buildSummary(action),
       resource: readResource,
       action: 'read',
       target: JSON.stringify(readTarget),
@@ -173,6 +174,6 @@ try {
       write_resource: writeResource
     }
   );
-} catch (error) {
+} catch (error: unknown) {
   fail(error instanceof Error ? error.message : String(error));
 }

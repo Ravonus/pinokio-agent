@@ -20,7 +20,7 @@
 	}>();
 
 	const connectedEdges = $derived(
-		edges.filter((e) => e.source === node.id || e.target === node.id)
+		edges.filter((e: TopologyEdge) => e.source === node.id || e.target === node.id)
 	);
 
 	const statusBadge = $derived(

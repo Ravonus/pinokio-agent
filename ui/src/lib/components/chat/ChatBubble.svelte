@@ -20,22 +20,71 @@
 		items: ChatPreviewItem[];
 	};
 
+	type ChatActionButton = {
+		id: string;
+		label: string;
+		prompt: string;
+		description?: string;
+	};
+
 	let {
 		role,
 		text,
 		timestamp,
 		files = [],
-		uiBlocks = []
+		uiBlocks = [],
+		actionButtons = [],
+		onActionClick = null
 	} = $props<{
 		role: 'user' | 'assistant' | 'error';
 		text: string;
 		timestamp: number;
 		files?: string[];
 		uiBlocks?: ChatUiBlock[];
+		actionButtons?: ChatActionButton[];
+		onActionClick?: ((action: ChatActionButton) => void) | null;
 	}>();
 
 	function formatTime(ts: number): string {
 		return new Date(ts).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+	}
+
+	type TextSegment = {
+		kind: 'text' | 'link';
+		value: string;
+	};
+
+	function splitTextSegments(value: string): TextSegment[] {
+		const input = String(value ?? '');
+		if (!input) {
+			return [{ kind: 'text', value: '' }];
+		}
+		const segments: TextSegment[] = [];
+		const re = /(https?:\/\/[^\s<>"'`]+)/gi;
+		let lastIndex = 0;
+		let match: RegExpExecArray | null;
+		while ((match = re.exec(input)) !== null) {
+			const start = match.index;
+			const url = match[0] ?? '';
+			if (start > lastIndex) {
+				segments.push({
+					kind: 'text',
+					value: input.slice(lastIndex, start)
+				});
+			}
+			segments.push({
+				kind: 'link',
+				value: url
+			});
+			lastIndex = start + url.length;
+		}
+		if (lastIndex < input.length) {
+			segments.push({
+				kind: 'text',
+				value: input.slice(lastIndex)
+			});
+		}
+		return segments;
 	}
 </script>
 
@@ -47,7 +96,17 @@
 	<div class="max-w-[85%] md:max-w-[70%]">
 		{#if role === 'user'}
 			<div class="chat-bubble-user">
-				<p class="whitespace-pre-wrap text-sm leading-relaxed">{text}</p>
+				<p class="whitespace-pre-wrap text-sm leading-relaxed">
+					{#each splitTextSegments(text) as segment}
+						{#if segment.kind === 'link'}
+							<a href={segment.value} target="_blank" rel="noopener noreferrer" class="underline">
+								{segment.value}
+							</a>
+						{:else}
+							{segment.value}
+						{/if}
+					{/each}
+				</p>
 			</div>
 		{:else if role === 'error'}
 			<div class="chat-bubble-error">
@@ -57,12 +116,46 @@
 					</svg>
 					<span class="text-xs font-medium uppercase tracking-wide">Error</span>
 				</div>
-				<p class="whitespace-pre-wrap text-sm leading-relaxed">{text}</p>
+				<p class="whitespace-pre-wrap text-sm leading-relaxed">
+					{#each splitTextSegments(text) as segment}
+						{#if segment.kind === 'link'}
+							<a href={segment.value} target="_blank" rel="noopener noreferrer" class="underline">
+								{segment.value}
+							</a>
+						{:else}
+							{segment.value}
+						{/if}
+					{/each}
+				</p>
 			</div>
 			{:else}
 				<div class="chat-bubble-assistant">
-					<p class="whitespace-pre-wrap text-sm leading-relaxed">{text}</p>
+					<p class="whitespace-pre-wrap text-sm leading-relaxed">
+						{#each splitTextSegments(text) as segment}
+							{#if segment.kind === 'link'}
+								<a href={segment.value} target="_blank" rel="noopener noreferrer" class="text-[var(--accent)] underline">
+									{segment.value}
+								</a>
+							{:else}
+								{segment.value}
+							{/if}
+						{/each}
+					</p>
 					<ChatPreviewBlocks blocks={uiBlocks} />
+					{#if actionButtons.length > 0}
+						<div class="mt-3 flex flex-wrap gap-2">
+							{#each actionButtons as action (`${action.id}-${action.prompt}`)}
+								<button
+									type="button"
+									class="btn btn-primary btn-sm"
+									title={action.description ?? action.label}
+									onclick={() => onActionClick?.(action)}
+								>
+									{action.label}
+								</button>
+							{/each}
+						</div>
+					{/if}
 				</div>
 			{/if}
 

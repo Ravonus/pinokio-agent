@@ -170,7 +170,7 @@ export async function buildHealthModel(): Promise<UiModel> {
 	const root = await resolveWorkspaceRoot();
 	const configPath = join(root, 'config', 'agent.toml');
 	const binaryPath = join(root, 'target', 'debug', 'pinokio-agent');
-	const playwrightWorkerPath = join(root, 'workers', 'playwright-service.mjs');
+	const playwrightWorkerPath = join(root, 'workers', 'playwright-service.ts');
 
 	const [cargoProbe, rustcProbe, nodeProbe, npmProbe, dockerProbe, configProbe, binaryProbe, playwrightProbe] =
 		await Promise.all([

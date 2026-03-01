@@ -37,7 +37,7 @@
   "plugins": [
     {
       "name": "postgres_agent",
-      "command": "node plugins/postgres-agent-plugin.mjs",
+      "command": "node plugins/postgres-agent-plugin.ts",
       "host_only": true,
       "allowed_actions": ["create", "read", "update", "delete"],
       "managed_only": false,
@@ -66,7 +66,7 @@
     },
     {
       "name": "db_router_agent",
-      "command": "node plugins/db-router-agent-plugin.mjs",
+      "command": "node plugins/db-router-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["create", "read", "update", "delete"],
       "managed_only": false,
@@ -95,7 +95,7 @@
     },
     {
       "name": "db_read_agent",
-      "command": "PINOKIO_DB_ROLE=read node plugins/db-role-agent-plugin.mjs",
+      "command": "PINOKIO_DB_ROLE=read node plugins/db-role-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["read"],
       "managed_only": false,
@@ -124,7 +124,7 @@
     },
     {
       "name": "db_write_agent",
-      "command": "PINOKIO_DB_ROLE=write node plugins/db-role-agent-plugin.mjs",
+      "command": "PINOKIO_DB_ROLE=write node plugins/db-role-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["create", "update", "delete"],
       "managed_only": false,
@@ -153,7 +153,7 @@
     },
     {
       "name": "db_create_agent",
-      "command": "PINOKIO_DB_ROLE=create node plugins/db-role-agent-plugin.mjs",
+      "command": "PINOKIO_DB_ROLE=create node plugins/db-role-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["create"],
       "managed_only": false,
@@ -182,7 +182,7 @@
     },
     {
       "name": "db_update_agent",
-      "command": "PINOKIO_DB_ROLE=update node plugins/db-role-agent-plugin.mjs",
+      "command": "PINOKIO_DB_ROLE=update node plugins/db-role-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["update"],
       "managed_only": false,
@@ -211,7 +211,7 @@
     },
     {
       "name": "db_delete_agent",
-      "command": "PINOKIO_DB_ROLE=delete node plugins/db-role-agent-plugin.mjs",
+      "command": "PINOKIO_DB_ROLE=delete node plugins/db-role-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["delete"],
       "managed_only": false,

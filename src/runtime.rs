@@ -765,6 +765,38 @@ fn collect_playwright_env(
         bool_env_value(pw.managed_by_rust).to_string(),
     ));
     out.push((
+        "PINOKIO_PLAYWRIGHT_DEFAULT_USE_USER_CONTEXT".to_string(),
+        bool_env_value(pw.default_use_user_context).to_string(),
+    ));
+    out.push((
+        "PINOKIO_PLAYWRIGHT_DEFAULT_HEADLESS".to_string(),
+        bool_env_value(pw.default_headless).to_string(),
+    ));
+    out.push((
+        "PINOKIO_PLAYWRIGHT_REQUIRE_USER_CONTEXT_PERMISSION".to_string(),
+        bool_env_value(pw.require_user_context_permission).to_string(),
+    ));
+    out.push((
+        "PINOKIO_PLAYWRIGHT_ALLOW_USER_CONTEXT_ANY_DOMAIN".to_string(),
+        bool_env_value(pw.allow_user_context_any_domain).to_string(),
+    ));
+    out.push((
+        "PINOKIO_PLAYWRIGHT_USER_CONTEXT_DOMAIN_ALLOWLIST".to_string(),
+        pw.user_context_domain_allowlist.join(","),
+    ));
+    out.push((
+        "PINOKIO_PLAYWRIGHT_AUTH_DOMAIN_HINTS".to_string(),
+        pw.auth_domain_hints.join(","),
+    ));
+    out.push((
+        "PINOKIO_PLAYWRIGHT_CONTAINER_FALLBACK_NON_AUTH".to_string(),
+        bool_env_value(pw.container_fallback_non_auth).to_string(),
+    ));
+    out.push((
+        "PINOKIO_PLAYWRIGHT_USER_CONTEXT_DIR".to_string(),
+        pw.user_context_dir.clone(),
+    ));
+    out.push((
         "PINOKIO_PLAYWRIGHT_AUTO_INSTALL_NODE_DEPS".to_string(),
         bool_env_value(pw.auto_install_node_deps).to_string(),
     ));

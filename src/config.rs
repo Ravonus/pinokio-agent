@@ -361,6 +361,22 @@ pub struct PlaywrightConfig {
     #[serde(default = "default_true")]
     pub managed_by_rust: bool,
     #[serde(default = "default_true")]
+    pub default_use_user_context: bool,
+    #[serde(default = "default_false")]
+    pub default_headless: bool,
+    #[serde(default = "default_true")]
+    pub require_user_context_permission: bool,
+    #[serde(default = "default_true")]
+    pub allow_user_context_any_domain: bool,
+    #[serde(default = "default_playwright_user_context_domain_allowlist")]
+    pub user_context_domain_allowlist: Vec<String>,
+    #[serde(default = "default_playwright_auth_domain_hints")]
+    pub auth_domain_hints: Vec<String>,
+    #[serde(default = "default_true")]
+    pub container_fallback_non_auth: bool,
+    #[serde(default = "default_playwright_user_context_dir")]
+    pub user_context_dir: String,
+    #[serde(default = "default_true")]
     pub auto_install_node_deps: bool,
     #[serde(default = "default_playwright_node_setup_command")]
     pub node_setup_command: String,
@@ -380,6 +396,14 @@ impl Default for PlaywrightConfig {
     fn default() -> Self {
         Self {
             managed_by_rust: true,
+            default_use_user_context: true,
+            default_headless: false,
+            require_user_context_permission: true,
+            allow_user_context_any_domain: true,
+            user_context_domain_allowlist: default_playwright_user_context_domain_allowlist(),
+            auth_domain_hints: default_playwright_auth_domain_hints(),
+            container_fallback_non_auth: true,
+            user_context_dir: default_playwright_user_context_dir(),
             auto_install_node_deps: true,
             node_setup_command: default_playwright_node_setup_command(),
             auto_install_chromium: default_playwright_auto_install(),
@@ -1000,14 +1024,14 @@ pub fn resolve_path(path: Option<&Path>) -> Result<PathBuf> {
         return Ok(path.to_path_buf());
     }
 
-    let user_default = expand_home("~/.pinokio-agent/config.toml")?;
-    if user_default.exists() {
-        return Ok(user_default);
-    }
-
     let workspace_default = Path::new("config/agent.toml").to_path_buf();
     if workspace_default.exists() {
         return Ok(workspace_default);
+    }
+
+    let user_default = expand_home("~/.pinokio-agent/config.toml")?;
+    if user_default.exists() {
+        return Ok(user_default);
     }
 
     Ok(user_default)
@@ -1206,14 +1230,15 @@ fn default_socket_bus_max_channel_messages() -> usize {
 }
 
 fn default_child_spawn_depth() -> u8 {
-    4
+    6
 }
 
 fn apply_runtime_compat_defaults(config: &mut AppConfig) {
-    // Plugin-first chat + directory orchestration relies on nested child spawns.
-    // Keep this automatic for older consumer configs that still use depth=2.
-    if config.manager.child_spawn_max_depth < 4 {
-        config.manager.child_spawn_max_depth = 4;
+    // Plugin-first chat + directory orchestration can require up to:
+    // chat -> worker -> explorer -> read -> write -> write(apply socket).
+    // Keep this automatic for older consumer configs that still use lower depth values.
+    if config.manager.child_spawn_max_depth < 6 {
+        config.manager.child_spawn_max_depth = 6;
     }
     ensure_plugin_first_system_prompts(config);
 }
@@ -1360,6 +1385,53 @@ fn default_playwright_auto_install() -> bool {
     true
 }
 
+fn default_playwright_user_context_dir() -> String {
+    "~/.pinokio-agent/playwright-profile".to_string()
+}
+
+fn default_playwright_user_context_domain_allowlist() -> Vec<String> {
+    vec![
+        "mail.google.com".to_string(),
+        "accounts.google.com".to_string(),
+        "gmail.com".to_string(),
+        "outlook.live.com".to_string(),
+        "login.live.com".to_string(),
+        "live.com".to_string(),
+        "outlook.com".to_string(),
+        "hotmail.com".to_string(),
+        "outlook.office.com".to_string(),
+        "office.com".to_string(),
+        "account.microsoft.com".to_string(),
+        "twitch.tv".to_string(),
+        "x.com".to_string(),
+        "twitter.com".to_string(),
+        "linkedin.com".to_string(),
+        "facebook.com".to_string(),
+        "instagram.com".to_string(),
+        "discord.com".to_string(),
+        "slack.com".to_string(),
+    ]
+}
+
+fn default_playwright_auth_domain_hints() -> Vec<String> {
+    vec![
+        "mail.google.com".to_string(),
+        "outlook.live.com".to_string(),
+        "login.live.com".to_string(),
+        "gmail.com".to_string(),
+        "hotmail.com".to_string(),
+        "outlook.com".to_string(),
+        "twitch.tv".to_string(),
+        "x.com".to_string(),
+        "twitter.com".to_string(),
+        "linkedin.com".to_string(),
+        "facebook.com".to_string(),
+        "instagram.com".to_string(),
+        "discord.com".to_string(),
+        "slack.com".to_string(),
+    ]
+}
+
 fn default_playwright_node_setup_command() -> String {
     "npm install --omit=dev".to_string()
 }
@@ -1369,7 +1441,7 @@ fn default_playwright_install_command() -> String {
 }
 
 fn default_playwright_host_service_command() -> String {
-    "node workers/playwright-service.mjs".to_string()
+    "node workers/playwright-service.ts".to_string()
 }
 
 fn default_playwright_timeout_ms() -> u64 {
@@ -1506,6 +1578,25 @@ fn default_installed_manifests() -> HashMap<String, InstalledPluginManifest> {
             ui_extensions: Vec::new(),
             services: Vec::new(),
             skills: vec!["explorer.safe_ops".to_string()],
+            resource_networks: Vec::new(),
+            hook_extensions: Vec::new(),
+        },
+    );
+    out.insert(
+        "pinokio.playwright".to_string(),
+        InstalledPluginManifest {
+            name: "Playwright Browser Automation".to_string(),
+            version: "1.0.0".to_string(),
+            manifest_path: "plugins/manifests/playwright.json".to_string(),
+            plugins: vec![
+                "playwright_agent".to_string(),
+                "playwright_read_agent".to_string(),
+                "playwright_write_agent".to_string(),
+                "playwright_unsafe_agent".to_string(),
+            ],
+            ui_extensions: Vec::new(),
+            services: Vec::new(),
+            skills: vec!["playwright.discovery_split".to_string()],
             resource_networks: Vec::new(),
             hook_extensions: Vec::new(),
         },

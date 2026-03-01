@@ -2,7 +2,7 @@
 prefer_container_manager = true
 enable_container_agents = true
 child_spawn_enabled = true
-child_spawn_max_depth = 4
+child_spawn_max_depth = 6
 child_spawn_container_only = true
 unsafe_host_communication_enabled = false
 hook_extensions_enabled = true
@@ -32,11 +32,54 @@ send_task_events = true
 
 [playwright]
 managed_by_rust = true
+default_use_user_context = true
+default_headless = false
+require_user_context_permission = true
+allow_user_context_any_domain = true
+user_context_domain_allowlist = [
+    "mail.google.com",
+    "accounts.google.com",
+    "gmail.com",
+    "outlook.live.com",
+    "login.live.com",
+    "live.com",
+    "outlook.com",
+    "hotmail.com",
+    "outlook.office.com",
+    "office.com",
+    "account.microsoft.com",
+    "twitch.tv",
+    "x.com",
+    "twitter.com",
+    "linkedin.com",
+    "facebook.com",
+    "instagram.com",
+    "discord.com",
+    "slack.com",
+]
+auth_domain_hints = [
+    "mail.google.com",
+    "outlook.live.com",
+    "login.live.com",
+    "gmail.com",
+    "hotmail.com",
+    "outlook.com",
+    "twitch.tv",
+    "x.com",
+    "twitter.com",
+    "linkedin.com",
+    "facebook.com",
+    "instagram.com",
+    "discord.com",
+    "slack.com",
+]
+container_fallback_non_auth = true
+user_context_dir = "~/.pinokio-agent/playwright-profile"
 auto_install_node_deps = true
 node_setup_command = "npm install --omit=dev"
 auto_install_chromium = true
 install_command = "npx playwright install chromium"
-host_service_command = "node workers/playwright-service.mjs"
+host_service_command = "node workers/playwright-service.ts"
 request_timeout_ms = 45000
 
 [ui]
@@ -93,13 +136,18 @@ auto_pull_images = true
 inject_host_binary = true
 
 [orchestrator.resource_images]
+plugins = "ghcr.io/pinokio-ai/pinokio-agent-micro:local"
 connections = "ghcr.io/pinokio-ai/pinokio-agent-micro:local"
 filesystem = "ghcr.io/pinokio-ai/pinokio-agent-micro:local"
-plugins = "ghcr.io/pinokio-ai/pinokio-agent-micro:local"
 
 [orchestrator.resource_networks]
 
 [orchestrator.services]
+
+[connectors.host_twitter]
+auth_env = ["TWITTER_BEARER_TOKEN"]
+allowed_resources = ["twitter"]
+host_only = true
 
 [connectors.host_mail]
 auth_env = [
@@ -109,13 +157,8 @@ auth_env = [
 allowed_resources = ["email"]
 host_only = true
 
-[connectors.host_twitter]
-auth_env = ["TWITTER_BEARER_TOKEN"]
-allowed_resources = ["twitter"]
-host_only = true
-
 [connections.telegram]
-command = "node plugins/telegram-connection.mjs"
+command = "node plugins/telegram-connection.ts"
 host_only = true
 auth_env = ["TELEGRAM_BOT_TOKEN"]
 allowed_actions = [
@@ -144,13 +187,6 @@ memory_read = false
 memory_write = false
 playwright = false
 
-[api_layers.claude_code]
-kind = "command"
-credential = "claude_code_main"
-command = """PINOKIO_OAUTH_BIN=""; PINOKIO_CHILD_HOME="${PINOKIO_CHILD_HOME:-/var/lib/pinokio-oauth}"; if [ "${PINOKIO_CHILD_MODE:-}" = "1" ]; then PATH="$PINOKIO_CHILD_HOME/.npm-global/bin:$PINOKIO_CHILD_HOME/.local/bin:$PATH"; fi; PINOKIO_OAUTH_BIN="$(command -v claude 2>/dev/null || true)"; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/.local/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/.local/bin/claude"; fi; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/.npm-global/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/.npm-global/bin/claude"; fi; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/bin/claude"; fi; if [ -z "$PINOKIO_OAUTH_BIN" ]; then if [ "${PINOKIO_CHILD_MODE:-}" = "1" ]; then mkdir -p "$PINOKIO_CHILD_HOME"; PINOKIO_INSTALL_TIMEOUT_SECS="${PINOKIO_OAUTH_INSTALL_TIMEOUT_SECS:-180}"; if command -v timeout >/dev/null 2>&1; then timeout "${PINOKIO_INSTALL_TIMEOUT_SECS}s" sh -lc 'mkdir -p "$PINOKIO_CHILD_HOME/.local/bin"; tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; HOME="$PINOKIO_CHILD_HOME" sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; code=$?; if [ $code -eq 124 ]; then echo 'Claude Code CLI install timed out in container child runtime' >&2; fi; if [ $code -ne 0 ]; then exit $code; fi; else sh -lc 'mkdir -p "$PINOKIO_CHILD_HOME/.local/bin"; tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; HOME="$PINOKIO_CHILD_HOME" sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; fi; else PINOKIO_OAUTH_OS="$(uname -s 2>/dev/null || echo unknown)"; case "$PINOKIO_OAUTH_OS" in Darwin|Linux) PINOKIO_INSTALL_TIMEOUT_SECS="${PINOKIO_OAUTH_INSTALL_TIMEOUT_SECS:-180}"; if command -v timeout >/dev/null 2>&1; then timeout "${PINOKIO_INSTALL_TIMEOUT_SECS}s" sh -lc 'tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; code=$?; if [ $code -eq 124 ]; then echo 'Claude Code CLI install timed out' >&2; fi; if [ $code -ne 0 ]; then exit $code; fi; else sh -lc 'tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; fi ;; MINGW*|MSYS*|CYGWIN*|Windows_NT) powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'irm https://claude.ai/install.ps1 | iex' ;; *) PINOKIO_INSTALL_TIMEOUT_SECS="${PINOKIO_OAUTH_INSTALL_TIMEOUT_SECS:-180}"; if command -v timeout >/dev/null 2>&1; then timeout "${PINOKIO_INSTALL_TIMEOUT_SECS}s" sh -lc 'tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; code=$?; if [ $code -eq 124 ]; then echo 'Claude Code CLI install timed out' >&2; fi; if [ $code -ne 0 ]; then exit $code; fi; else sh -lc 'tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; fi ;; esac; fi; PINOKIO_OAUTH_BIN="$(command -v claude 2>/dev/null || true)"; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/.local/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/.local/bin/claude"; fi; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/.npm-global/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/.npm-global/bin/claude"; fi; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/bin/claude"; fi; fi; if [ -z "$PINOKIO_OAUTH_BIN" ]; then if [ "${PINOKIO_CHILD_MODE:-}" = "1" ]; then echo 'Claude Code CLI install in container child runtime failed. This container must be able to install claude automatically or ship it preinstalled in the image.' >&2; else echo 'Claude Code CLI not found. install manually with: curl -fsSL https://claude.ai/install.sh | bash' >&2; fi; exit 1; fi; "$PINOKIO_OAUTH_BIN" --print "$PINOKIO_PROMPT""""
-
-[api_layers.claude_code.headers]
-
 [api_layers.openai_codex]
 kind = "command"
 base_url = "https://api.openai.com"
@@ -165,6 +201,19 @@ credential = "claude_api_main"
 
 [api_layers.claude_api.headers]
 
+[api_layers.claude_code]
+kind = "command"
+credential = "claude_code_main"
+command = """PINOKIO_OAUTH_BIN=""; PINOKIO_CHILD_HOME="${PINOKIO_CHILD_HOME:-/var/lib/pinokio-oauth}"; if [ "${PINOKIO_CHILD_MODE:-}" = "1" ]; then PATH="$PINOKIO_CHILD_HOME/.npm-global/bin:$PINOKIO_CHILD_HOME/.local/bin:$PATH"; fi; PINOKIO_OAUTH_BIN="$(command -v claude 2>/dev/null || true)"; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/.local/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/.local/bin/claude"; fi; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/.npm-global/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/.npm-global/bin/claude"; fi; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/bin/claude"; fi; if [ -z "$PINOKIO_OAUTH_BIN" ]; then if [ "${PINOKIO_CHILD_MODE:-}" = "1" ]; then mkdir -p "$PINOKIO_CHILD_HOME"; PINOKIO_INSTALL_TIMEOUT_SECS="${PINOKIO_OAUTH_INSTALL_TIMEOUT_SECS:-180}"; if command -v timeout >/dev/null 2>&1; then timeout "${PINOKIO_INSTALL_TIMEOUT_SECS}s" sh -lc 'mkdir -p "$PINOKIO_CHILD_HOME/.local/bin"; tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; HOME="$PINOKIO_CHILD_HOME" sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; code=$?; if [ $code -eq 124 ]; then echo 'Claude Code CLI install timed out in container child runtime' >&2; fi; if [ $code -ne 0 ]; then exit $code; fi; else sh -lc 'mkdir -p "$PINOKIO_CHILD_HOME/.local/bin"; tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; HOME="$PINOKIO_CHILD_HOME" sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; fi; else PINOKIO_OAUTH_OS="$(uname -s 2>/dev/null || echo unknown)"; case "$PINOKIO_OAUTH_OS" in Darwin|Linux) PINOKIO_INSTALL_TIMEOUT_SECS="${PINOKIO_OAUTH_INSTALL_TIMEOUT_SECS:-180}"; if command -v timeout >/dev/null 2>&1; then timeout "${PINOKIO_INSTALL_TIMEOUT_SECS}s" sh -lc 'tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; code=$?; if [ $code -eq 124 ]; then echo 'Claude Code CLI install timed out' >&2; fi; if [ $code -ne 0 ]; then exit $code; fi; else sh -lc 'tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; fi ;; MINGW*|MSYS*|CYGWIN*|Windows_NT) powershell.exe -NoProfile -ExecutionPolicy Bypass -Command 'irm https://claude.ai/install.ps1 | iex' ;; *) PINOKIO_INSTALL_TIMEOUT_SECS="${PINOKIO_OAUTH_INSTALL_TIMEOUT_SECS:-180}"; if command -v timeout >/dev/null 2>&1; then timeout "${PINOKIO_INSTALL_TIMEOUT_SECS}s" sh -lc 'tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; code=$?; if [ $code -eq 124 ]; then echo 'Claude Code CLI install timed out' >&2; fi; if [ $code -ne 0 ]; then exit $code; fi; else sh -lc 'tmp_script="$(mktemp)"; node -e '"'"'const fs=require("fs"); const https=require("https"); const out=fs.createWriteStream(process.argv[1]); https.get("https://claude.ai/install.sh", (res)=>{ if (res.statusCode !== 200) { console.error(`failed to download claude installer: ${res.statusCode}`); process.exit(1); } res.pipe(out); res.on("end", ()=>out.end()); }).on("error", (err)=>{ console.error(err.message); process.exit(1); });'"'"' "$tmp_script"; code=$?; if [ $code -ne 0 ]; then rm -f "$tmp_script"; exit $code; fi; sh "$tmp_script"; code=$?; rm -f "$tmp_script"; exit $code'; fi ;; esac; fi; PINOKIO_OAUTH_BIN="$(command -v claude 2>/dev/null || true)"; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/.local/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/.local/bin/claude"; fi; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/.npm-global/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/.npm-global/bin/claude"; fi; if [ -z "$PINOKIO_OAUTH_BIN" ] && [ -x "$HOME/bin/claude" ]; then PINOKIO_OAUTH_BIN="$HOME/bin/claude"; fi; fi; if [ -z "$PINOKIO_OAUTH_BIN" ]; then if [ "${PINOKIO_CHILD_MODE:-}" = "1" ]; then echo 'Claude Code CLI install in container child runtime failed. This container must be able to install claude automatically or ship it preinstalled in the image.' >&2; else echo 'Claude Code CLI not found. install manually with: curl -fsSL https://claude.ai/install.sh | bash' >&2; fi; exit 1; fi; "$PINOKIO_OAUTH_BIN" --print "$PINOKIO_PROMPT""""
+
+[api_layers.claude_code.headers]
+
+[credentials.claude_code_main]
+provider = "claude_code"
+mode = "oauth_command"
+env = ["ANTHROPIC_API_KEY"]
+login_command = "claude auth token --json"
+
 [credentials.openai_main]
 provider = "openai"
 mode = "api_key"
@@ -172,12 +221,6 @@ env = [
     "OPENAI_API_KEY",
     "OPENAI_API_KEY_BACKUP",
 ]
-
-[credentials.claude_code_main]
-provider = "claude_code"
-mode = "oauth_command"
-env = ["ANTHROPIC_API_KEY"]
-login_command = "claude auth token --json"
 
 [credentials.codex_main]
 provider = "openai_codex"
@@ -199,7 +242,16 @@ fallback = "default"
 max_tokens = 2000
 max_cost_usd = 0.5
 temperature = 0.20000000298023224
-system_prompt = "You are a secure orchestration agent. Always check installed plugins and systems before claiming a capability is unavailable."
+system_prompt = "You are a secure orchestration agent. Always check installed plugins and systems before claiming a capability is unavailable. Before using local or host methods, check installed plugins and systems first and route through them when possible."
+
+[llm_profiles.codex]
+provider = "openai"
+model = "gpt-5-codex"
+api_layer = "openai_codex"
+max_tokens = 2000
+max_cost_usd = 0.25
+temperature = 0.20000000298023224
+system_prompt = "You are a secure orchestration agent. Be concise and risk-aware. Always check installed plugins and systems before claiming a capability is unavailable. Before using local or host methods, check installed plugins and systems first and route through them when possible."
 
 [llm_profiles.claude_code]
 provider = "claude_code"
@@ -209,16 +261,17 @@ credential = "claude_code_main"
 max_tokens = 2000
 max_cost_usd = 0.5
 temperature = 0.20000000298023224
-system_prompt = "You are a secure orchestration agent. Always check installed plugins and systems before claiming a capability is unavailable."
+system_prompt = "You are a secure orchestration agent. Always check installed plugins and systems before claiming a capability is unavailable. Before using local or host methods, check installed plugins and systems first and route through them when possible."
 
-[llm_profiles.codex]
+[llm_profiles.default]
 provider = "openai"
-model = "gpt-5-codex"
+model = "gpt-4.1-mini"
 api_layer = "openai_codex"
+credential = "openai_main"
 max_tokens = 2000
 max_cost_usd = 0.25
 temperature = 0.20000000298023224
-system_prompt = "You are a secure orchestration agent. Be concise and risk-aware. Always check installed plugins and systems before claiming a capability is unavailable."
+system_prompt = "You are a secure orchestration agent. Be concise and risk-aware. Always check installed plugins and systems before claiming a capability is unavailable. Before using local or host methods, check installed plugins and systems first and route through them when possible."
 
 [llm_profiles.conservative]
 provider = "openai"
@@ -229,17 +282,7 @@ fallback = "default"
 max_tokens = 1000
 max_cost_usd = 0.10000000149011612
 temperature = 0.10000000149011612
-system_prompt = "You are a very conservative secure orchestration agent. Always check installed plugins and systems before claiming a capability is unavailable."
-
-[llm_profiles.default]
-provider = "openai"
-model = "gpt-4.1-mini"
-api_layer = "openai_codex"
-credential = "openai_main"
-max_tokens = 2000
-max_cost_usd = 0.25
-temperature = 0.20000000298023224
-system_prompt = "You are a secure orchestration agent. Be concise and risk-aware. Always check installed plugins and systems before claiming a capability is unavailable."
+system_prompt = "You are a very conservative secure orchestration agent. Always check installed plugins and systems before claiming a capability is unavailable. Before using local or host methods, check installed plugins and systems first and route through them when possible."
 
 [policies]
 always_split_crud = true
@@ -264,7 +307,7 @@ max_retries = 1
 [hooks.events]
 
 [hooks.extensions.connection_router]
-commands = ["node hooks/connection-router.mjs"]
+commands = ["node hooks/connection-router.ts"]
 timeout_ms = 15000
 fail_open = false
 max_retries = 0
@@ -281,6 +324,22 @@ manifest_dirs = [
     "~/.pinokio-agent/plugin-manifests",
 ]
 
+[plugin_registry.installed_manifests."pinokio.playwright"]
+name = "Playwright Browser Automation"
+version = "1.0.0"
+manifest_path = "/Users/ravonus/Documents/pinokio-agent/plugins/manifests/playwright.json"
+plugins = [
+    "playwright_agent",
+    "playwright_read_agent",
+    "playwright_write_agent",
+    "playwright_unsafe_agent",
+]
+ui_extensions = []
+services = []
+skills = ["playwright.discovery_split"]
+resource_networks = []
+hook_extensions = []
+
 [plugin_registry.installed_manifests."pinokio.unsafe_host"]
 name = "Unsafe Host Agent"
 version = "1.0.0"
@@ -289,6 +348,21 @@ plugins = ["unsafe_host_agent"]
 ui_extensions = []
 services = []
 skills = ["unsafe.host_ops"]
+resource_networks = []
+hook_extensions = []
+
+[plugin_registry.installed_manifests."pinokio.explorer"]
+name = "Explorer"
+version = "1.0.0"
+manifest_path = "../plugins/manifests/explorer.json"
+plugins = [
+    "explorer_agent",
+    "explorer_read_agent",
+    "explorer_write_agent",
+]
+ui_extensions = []
+services = []
+skills = ["explorer.safe_ops"]
 resource_networks = []
 hook_extensions = []
 
@@ -328,21 +402,6 @@ plugins = ["memory_agent"]
 ui_extensions = []
 services = []
 skills = ["memory.indexing"]
-resource_networks = []
-hook_extensions = []
-
-[plugin_registry.installed_manifests."pinokio.explorer"]
-name = "Explorer"
-version = "1.0.0"
-manifest_path = "../plugins/manifests/explorer.json"
-plugins = [
-    "explorer_agent",
-    "explorer_read_agent",
-    "explorer_write_agent",
-]
-ui_extensions = []
-services = []
-skills = ["explorer.safe_ops"]
 resource_networks = []
 hook_extensions = []
 

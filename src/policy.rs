@@ -124,6 +124,18 @@ fn required_actions(config: &AppConfig, request: &TaskRequest) -> Vec<CrudAction
         return vec![request.action];
     }
 
+    // Plugin and child-managed flows already provide explicit CRUD intent.
+    // Re-inferring from free text on every hop causes action escalation
+    // (for example "cleanup" -> delete) that breaks read-only micro agents.
+    if request.resource.trim().starts_with("plugin:")
+        || request.resource.trim().starts_with("connection:")
+        || request.caller_task_id.is_some()
+        || request.caller_agent_id.is_some()
+        || request.caller_resource.is_some()
+    {
+        return vec![request.action];
+    }
+
     let lower = request.summary.to_lowercase();
     let mut actions = Vec::new();
 
@@ -140,8 +152,11 @@ fn required_actions(config: &AppConfig, request: &TaskRequest) -> Vec<CrudAction
     if lower.contains("update") || lower.contains("edit") || lower.contains("modify") {
         actions.push(CrudAction::Update);
     }
-    if lower.contains("delete") || lower.contains("remove") || lower.contains("cleanup") {
+    if lower.contains("delete") || lower.contains("remove") {
         actions.push(CrudAction::Delete);
+    }
+    if lower.contains("cleanup") || lower.contains("clean up") || lower.contains("organize") {
+        actions.push(CrudAction::Update);
     }
 
     if actions.is_empty() {

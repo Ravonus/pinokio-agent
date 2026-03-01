@@ -1,14 +1,14 @@
 const requestRaw = process.env.PINOKIO_CONNECTION_REQUEST_JSON || "{}";
-const request = JSON.parse(requestRaw);
+const request: Record<string, unknown> = JSON.parse(requestRaw);
 
-const response = {
+const response: Record<string, unknown> = {
   ok: true,
   connection: "telegram",
   action: request.action || "read",
   detail: "telegram connection command executed"
 };
 
-if ((request.action || "").toLowerCase() === "create") {
+if ((String(request.action || "")).toLowerCase() === "create") {
   response.hook_request = {
     name: "connection_router",
     payload: {

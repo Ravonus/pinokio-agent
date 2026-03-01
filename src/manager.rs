@@ -2158,7 +2158,7 @@ mod tests {
             connection: None,
             connection_command: None,
             plugin: Some("chat_worker_agent".to_string()),
-            plugin_command: Some("node plugins/chat-worker-agent-plugin.mjs".to_string()),
+            plugin_command: Some("node plugins/chat-worker-agent-plugin.ts".to_string()),
             allow_spawn_child: permissions.spawn_child,
             allow_hook_requests: permissions.hook_extensions,
             permissions,

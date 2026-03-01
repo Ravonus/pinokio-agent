@@ -352,8 +352,11 @@
 	});
 
 	// Node lookup for edges
-	function findNode(id: string | SimNode): SimNode | undefined {
+	function findNode(id: string | number | SimNode): SimNode | undefined {
 		if (typeof id === 'object') return id;
+		if (typeof id === 'number') {
+			return simNodes.find((n) => n.id === String(id));
+		}
 		return simNodes.find((n) => n.id === id);
 	}
 

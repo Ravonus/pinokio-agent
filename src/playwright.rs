@@ -215,7 +215,7 @@ impl PlaywrightRuntime {
         match &self.launch {
             PlaywrightLaunch::NodeScript(_) => true,
             PlaywrightLaunch::Shell(command) => {
-                command.contains("workers/playwright-service.mjs") || command.starts_with("node ")
+                command.contains("workers/playwright-service") || command.starts_with("node ")
             }
         }
     }
@@ -228,7 +228,7 @@ fn resolve_worker_path() -> Result<PathBuf> {
 
     let cwd_candidate = env::current_dir()
         .context("failed to get cwd")?
-        .join("workers/playwright-service.mjs");
+        .join("workers/playwright-service.ts");
     if cwd_candidate.exists() {
         return Ok(cwd_candidate);
     }
@@ -236,7 +236,7 @@ fn resolve_worker_path() -> Result<PathBuf> {
     let exe_candidate = env::current_exe()
         .context("failed to get current executable path")?
         .parent()
-        .map(|p| p.join("../workers/playwright-service.mjs"))
+        .map(|p| p.join("../workers/playwright-service.ts"))
         .ok_or_else(|| anyhow::anyhow!("failed to resolve executable parent"))?;
     if exe_candidate.exists() {
         return Ok(exe_candidate);

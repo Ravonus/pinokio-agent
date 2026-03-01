@@ -20,9 +20,15 @@
 	}>();
 
 	const nodeCount = $derived(graph?.nodes.length ?? 0);
-	const healthyCount = $derived(graph?.nodes.filter(n => n.status === 'healthy').length ?? 0);
-	const degradedCount = $derived(graph?.nodes.filter(n => n.status === 'degraded').length ?? 0);
-	const downCount = $derived(graph?.nodes.filter(n => n.status === 'down').length ?? 0);
+	const healthyCount = $derived(
+		graph?.nodes.filter((n: TopologyGraph['nodes'][number]) => n.status === 'healthy').length ?? 0
+	);
+	const degradedCount = $derived(
+		graph?.nodes.filter((n: TopologyGraph['nodes'][number]) => n.status === 'degraded').length ?? 0
+	);
+	const downCount = $derived(
+		graph?.nodes.filter((n: TopologyGraph['nodes'][number]) => n.status === 'down').length ?? 0
+	);
 </script>
 
 <div class="absolute right-3 top-3 z-20 flex flex-col gap-1 md:right-4 md:top-4">

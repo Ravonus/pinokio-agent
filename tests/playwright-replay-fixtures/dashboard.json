@@ -1,0 +1,37 @@
+{
+  "name": "web-dashboard",
+  "host": "app.example-dashboard.com",
+  "labels": [
+    { "label": "save_button", "selector_hint": "button[data-testid=\"save\"]" }
+  ],
+  "network_candidates": [
+    {
+      "origin": "https://app.example-dashboard.com",
+      "path_template": "/api/projects/:id/settings",
+      "methods": ["PATCH", "GET"],
+      "api_like": true,
+      "same_origin": true,
+      "count": 12
+    }
+  ],
+  "step": {
+    "type": "click",
+    "text": "Save",
+    "role": "button",
+    "data_testid": "save"
+  },
+  "api_attempt": {
+    "method": "PATCH",
+    "candidate_key": "settings"
+  },
+  "guardrail": {
+    "mutate": true,
+    "desiredAction": "update",
+    "preferNetworkFirst": true,
+    "cleanupIntent": false,
+    "pilotApproved": true,
+    "requiredLabelKeys": ["save_button"],
+    "actionsCount": 1,
+    "apiAttemptsCount": 1
+  }
+}

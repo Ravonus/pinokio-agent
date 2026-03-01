@@ -1,0 +1,38 @@
+{
+  "name": "ecommerce-admin",
+  "host": "admin.shopify.com",
+  "labels": [
+    { "label": "select_row", "selector_hint": "input[type=\"checkbox\"][name=\"order\"]" },
+    { "label": "archive_button", "selector_hint": "button[aria-label=\"Archive\"]" }
+  ],
+  "network_candidates": [
+    {
+      "origin": "https://admin.shopify.com",
+      "path_template": "/admin/api/orders/:id/archive",
+      "methods": ["POST"],
+      "api_like": true,
+      "same_origin": true,
+      "count": 9
+    }
+  ],
+  "step": {
+    "type": "click",
+    "label_key": "archive_button",
+    "text": "Archive",
+    "role": "button"
+  },
+  "api_attempt": {
+    "method": "POST",
+    "path": "/admin/api/orders/:id/archive"
+  },
+  "guardrail": {
+    "mutate": true,
+    "desiredAction": "delete",
+    "preferNetworkFirst": true,
+    "cleanupIntent": true,
+    "pilotApproved": false,
+    "requiredLabelKeys": ["select_row", "archive_button"],
+    "actionsCount": 1,
+    "apiAttemptsCount": 0
+  }
+}

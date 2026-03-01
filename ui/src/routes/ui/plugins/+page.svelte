@@ -343,7 +343,7 @@
 				details are available, but hidden by default.
 			</p>
 		</div>
-		<button class="btn btn-neutral btn-sm" onclick={refreshCatalog} disabled={busyRefresh}>
+		<button class="btn btn-neutral btn-sm" onclick={() => void refreshCatalog()} disabled={busyRefresh}>
 			{busyRefresh ? 'Refreshing...' : 'Refresh'}
 		</button>
 	</div>

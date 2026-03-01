@@ -1,20 +1,58 @@
 import { spawnSync } from 'node:child_process';
-import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.mjs';
+import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.ts';
+import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
 
-const SUPPORTED_ACTIONS = new Set(['create', 'read', 'update', 'delete']);
-const SUPPORTED_POLICIES = new Set(['owner', 'all', 'acl']);
-const DEFAULT_READ_POLICY = 'all';
-const DEFAULT_WRITE_POLICY = 'owner';
-const DEFAULT_LIMIT = 30;
-const MAX_LIMIT = 500;
+const SUPPORTED_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
+const SUPPORTED_POLICIES: Set<string> = new Set(['owner', 'all', 'acl']);
+const DEFAULT_READ_POLICY: string = 'all';
+const DEFAULT_WRITE_POLICY: string = 'owner';
+const DEFAULT_LIMIT: number = 30;
+const MAX_LIMIT: number = 500;
 
-function normalizeAction(value) {
+interface TargetMeta {
+	[key: string]: unknown;
+}
+
+interface DbConnection {
+	container: string;
+	database: string;
+	user: string;
+	password: string;
+	timeoutMs: number;
+}
+
+interface NamespaceAccess {
+	namespace_key: string;
+	owner_actor: string;
+	read_policy: string;
+	write_policy: string;
+	metadata: Record<string, unknown>;
+	can_read: boolean | string | number;
+	can_create: boolean | string | number;
+	can_update: boolean | string | number;
+	can_delete: boolean | string | number;
+	can_admin: boolean | string | number;
+}
+
+interface Permissions {
+	read: boolean;
+	create: boolean;
+	update: boolean;
+	delete: boolean;
+	admin: boolean;
+}
+
+interface RunSqlOptions {
+	tuplesOnly?: boolean;
+}
+
+function normalizeAction(value: unknown): string {
 	return String(value || '')
 		.trim()
 		.toLowerCase();
 }
 
-function parseTargetMeta(target) {
+function parseTargetMeta(target: unknown): TargetMeta {
 	if (typeof target !== 'string') {
 		return {};
 	}
@@ -28,7 +66,7 @@ function parseTargetMeta(target) {
 	try {
 		const parsed = JSON.parse(trimmed);
 		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			return parsed;
+			return parsed as TargetMeta;
 		}
 		return {};
 	} catch {
@@ -36,7 +74,7 @@ function parseTargetMeta(target) {
 	}
 }
 
-function normalizeActor(value) {
+function normalizeActor(value: unknown): string {
 	const raw = String(value || '').trim();
 	if (!raw) {
 		return 'anonymous';
@@ -44,7 +82,7 @@ function normalizeActor(value) {
 	return raw.toLowerCase();
 }
 
-function defaultNamespaceForActor(actor) {
+function defaultNamespaceForActor(actor: string): string {
 	const safe = String(actor || '')
 		.toLowerCase()
 		.replace(/[^a-z0-9]+/g, '_')
@@ -55,7 +93,7 @@ function defaultNamespaceForActor(actor) {
 	return `namespace_${safe}`;
 }
 
-function normalizeNamespace(value, fallbackActor) {
+function normalizeNamespace(value: unknown, fallbackActor: string): string {
 	const raw = String(value || '').trim();
 	if (!raw) {
 		return defaultNamespaceForActor(fallbackActor);
@@ -70,7 +108,7 @@ function normalizeNamespace(value, fallbackActor) {
 	return safe;
 }
 
-function toInt(value, fallback, min, max) {
+function toInt(value: unknown, fallback: number, min: number, max: number): number {
 	const n = Number.parseInt(String(value ?? ''), 10);
 	if (!Number.isFinite(n)) {
 		return fallback;
@@ -78,14 +116,14 @@ function toInt(value, fallback, min, max) {
 	return Math.min(Math.max(n, min), max);
 }
 
-function asObject(value) {
+function asObject(value: unknown): Record<string, unknown> {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		return {};
 	}
-	return value;
+	return value as Record<string, unknown>;
 }
 
-function asStringArray(value) {
+function asStringArray(value: unknown): string[] {
 	if (!Array.isArray(value)) {
 		return [];
 	}
@@ -95,15 +133,15 @@ function asStringArray(value) {
 		.slice(0, 200);
 }
 
-function sqlQuote(value) {
+function sqlQuote(value: unknown): string {
 	return `'${String(value ?? '').replace(/'/g, "''")}'`;
 }
 
-function sqlJson(value) {
+function sqlJson(value: unknown): string {
 	return `${sqlQuote(JSON.stringify(asObject(value)))}::jsonb`;
 }
 
-function sqlTextArray(values) {
+function sqlTextArray(values: unknown): string {
 	const list = asStringArray(values);
 	if (list.length === 0) {
 		return 'ARRAY[]::text[]';
@@ -111,7 +149,7 @@ function sqlTextArray(values) {
 	return `ARRAY[${list.map(sqlQuote).join(',')}]::text[]`;
 }
 
-function firstNonEmptyLine(text) {
+function firstNonEmptyLine(text: unknown): string | null {
 	for (const line of String(text || '').split(/\r?\n/)) {
 		const trimmed = line.trim();
 		if (trimmed.length > 0) {
@@ -121,28 +159,28 @@ function firstNonEmptyLine(text) {
 	return null;
 }
 
-function resolveConnection(targetMeta) {
+function resolveConnection(targetMeta: TargetMeta): DbConnection {
 	const timeoutRaw = Number(targetMeta.timeout_ms);
 	const timeoutMs = Number.isFinite(timeoutRaw)
 		? Math.min(Math.max(Math.trunc(timeoutRaw), 1_000), 120_000)
 		: 30_000;
 	return {
 		container:
-			(typeof targetMeta.container === 'string' && targetMeta.container.trim()) ||
+			(typeof targetMeta.container === 'string' && (targetMeta.container as string).trim()) ||
 			process.env.PINOKIO_DB_CONTAINER ||
 			'pinokio-postgres-main',
 		database:
-			(typeof targetMeta.database === 'string' && targetMeta.database.trim()) ||
+			(typeof targetMeta.database === 'string' && (targetMeta.database as string).trim()) ||
 			process.env.PINOKIO_DB_NAME ||
 			process.env.PGDATABASE ||
 			'pinokio',
 		user:
-			(typeof targetMeta.user === 'string' && targetMeta.user.trim()) ||
+			(typeof targetMeta.user === 'string' && (targetMeta.user as string).trim()) ||
 			process.env.PINOKIO_DB_USER ||
 			process.env.PGUSER ||
 			'pinokio',
 		password:
-			(typeof targetMeta.password === 'string' && targetMeta.password) ||
+			(typeof targetMeta.password === 'string' && targetMeta.password as string) ||
 			process.env.PINOKIO_DB_PASSWORD ||
 			process.env.PGPASSWORD ||
 			'',
@@ -150,8 +188,8 @@ function resolveConnection(targetMeta) {
 	};
 }
 
-function runSql(connection, sql, options = {}) {
-	const args = ['exec', '-i'];
+function runSql(connection: DbConnection, sql: string, options: RunSqlOptions = {}): string {
+	const args: string[] = ['exec', '-i'];
 	if (connection.password) {
 		args.push('-e', `PGPASSWORD=${connection.password}`);
 	}
@@ -187,7 +225,7 @@ function runSql(connection, sql, options = {}) {
 	return (out.stdout || '').trim();
 }
 
-function runJson(connection, sql) {
+function runJson(connection: DbConnection, sql: string): unknown {
 	const stdout = runSql(connection, sql, { tuplesOnly: true });
 	const line = firstNonEmptyLine(stdout);
 	if (!line) {
@@ -200,7 +238,7 @@ function runJson(connection, sql) {
 	}
 }
 
-function ensureSchema(connection) {
+function ensureSchema(connection: DbConnection): void {
 	runSql(
 		connection,
 		[
@@ -245,7 +283,7 @@ function ensureSchema(connection) {
 	);
 }
 
-function normalizePolicy(value, fallback) {
+function normalizePolicy(value: unknown, fallback: string): string {
 	const normalized = String(value || '')
 		.trim()
 		.toLowerCase();
@@ -255,14 +293,14 @@ function normalizePolicy(value, fallback) {
 	return fallback;
 }
 
-function parsePermissions(targetMeta) {
+function parsePermissions(targetMeta: TargetMeta): Permissions {
 	const raw = targetMeta.permissions;
-	const byName = { read: false, create: false, update: false, delete: false, admin: false };
+	const byName: Permissions = { read: false, create: false, update: false, delete: false, admin: false };
 	if (Array.isArray(raw)) {
 		for (const value of raw) {
 			const key = String(value || '')
 				.trim()
-				.toLowerCase();
+				.toLowerCase() as keyof Permissions;
 			if (key in byName) {
 				byName[key] = true;
 			}
@@ -270,7 +308,7 @@ function parsePermissions(targetMeta) {
 		return byName;
 	}
 	if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
-		const obj = raw;
+		const obj = raw as Record<string, unknown>;
 		byName.read = obj.read === true;
 		byName.create = obj.create === true;
 		byName.update = obj.update === true;
@@ -280,7 +318,7 @@ function parsePermissions(targetMeta) {
 	return byName;
 }
 
-function loadNamespaceAccess(connection, namespace, actor) {
+function loadNamespaceAccess(connection: DbConnection, namespace: string, actor: string): NamespaceAccess | null {
 	return runJson(
 		connection,
 		`WITH ns AS (
@@ -302,10 +340,10 @@ function loadNamespaceAccess(connection, namespace, actor) {
 			WHERE n.namespace_key = ${sqlQuote(namespace)}
 		)
 		SELECT COALESCE((SELECT row_to_json(ns)::text FROM ns), 'null');`
-	);
+	) as NamespaceAccess | null;
 }
 
-function createNamespaceIfMissing(connection, namespace, actor, targetMeta) {
+function createNamespaceIfMissing(connection: DbConnection, namespace: string, actor: string, targetMeta: TargetMeta): void {
 	const readPolicy = normalizePolicy(targetMeta.read_policy, DEFAULT_READ_POLICY);
 	const writePolicy = normalizePolicy(targetMeta.write_policy, DEFAULT_WRITE_POLICY);
 	const metadata = asObject(targetMeta.namespace_metadata ?? targetMeta.metadata);
@@ -333,12 +371,12 @@ function createNamespaceIfMissing(connection, namespace, actor, targetMeta) {
 	);
 }
 
-function canPerform(namespaceAccess, actor, capability) {
+function canPerform(namespaceAccess: NamespaceAccess | null, actor: string, capability: string): boolean {
 	if (!namespaceAccess) {
 		return false;
 	}
 
-	const asBool = (value) =>
+	const asBool = (value: unknown): boolean =>
 		value === true ||
 		value === 'true' ||
 		value === 't' ||
@@ -380,7 +418,7 @@ function canPerform(namespaceAccess, actor, capability) {
 	return false;
 }
 
-function hasAdmin(namespaceAccess, actor) {
+function hasAdmin(namespaceAccess: NamespaceAccess | null, actor: string): boolean {
 	if (!namespaceAccess) {
 		return false;
 	}
@@ -388,19 +426,19 @@ function hasAdmin(namespaceAccess, actor) {
 		namespaceAccess.owner_actor === actor ||
 		namespaceAccess.can_admin === true ||
 		namespaceAccess.can_admin === 'true' ||
-		namespaceAccess.can_admin === 't' ||
-		namespaceAccess.can_admin === 1 ||
-		namespaceAccess.can_admin === '1'
+		namespaceAccess.can_admin === ('t' as unknown as boolean) ||
+		namespaceAccess.can_admin === (1 as unknown as boolean) ||
+		namespaceAccess.can_admin === ('1' as unknown as boolean)
 	);
 }
 
-function requireCapability(namespaceAccess, actor, capability, namespace) {
+function requireCapability(namespaceAccess: NamespaceAccess | null, actor: string, capability: string, namespace: string): void {
 	if (!canPerform(namespaceAccess, actor, capability)) {
 		fail(`actor '${actor}' is not allowed to ${capability} namespace '${namespace}'`);
 	}
 }
 
-function resolveActor(request, targetMeta) {
+function resolveActor(request: PluginRequest, targetMeta: TargetMeta): string {
 	return normalizeActor(
 		targetMeta.actor ||
 			request.caller_resource ||
@@ -411,11 +449,11 @@ function resolveActor(request, targetMeta) {
 	);
 }
 
-function resolveNamespace(targetMeta, actor) {
+function resolveNamespace(targetMeta: TargetMeta, actor: string): string {
 	return normalizeNamespace(targetMeta.namespace, actor);
 }
 
-function ensureNamespaceForAction(connection, actor, namespace, action, targetMeta) {
+function ensureNamespaceForAction(connection: DbConnection, actor: string, namespace: string, action: string, targetMeta: TargetMeta): NamespaceAccess {
 	createNamespaceIfMissing(connection, namespace, actor, targetMeta);
 	const access = loadNamespaceAccess(connection, namespace, actor);
 	if (!access) {
@@ -425,7 +463,7 @@ function ensureNamespaceForAction(connection, actor, namespace, action, targetMe
 	return access;
 }
 
-function listReadableNamespaces(connection, actor) {
+function listReadableNamespaces(connection: DbConnection, actor: string): Record<string, unknown>[] {
 	const sql = `SELECT COALESCE(json_agg(row_to_json(t))::text, '[]')
 	FROM (
 		SELECT
@@ -455,10 +493,10 @@ function listReadableNamespaces(connection, actor) {
 		LIMIT 500
 	) t;`;
 	const rows = runJson(connection, sql);
-	return Array.isArray(rows) ? rows : [];
+	return Array.isArray(rows) ? rows as Record<string, unknown>[] : [];
 }
 
-function memoryRowProjection(alias = 'm') {
+function memoryRowProjection(alias: string = 'm'): string {
 	return `json_build_object(
 		'id', ${alias}.id,
 		'namespace', ${alias}.namespace_key,
@@ -472,7 +510,7 @@ function memoryRowProjection(alias = 'm') {
 	)`;
 }
 
-function runReadAction(connection, request, actor, targetMeta) {
+function runReadAction(connection: DbConnection, request: PluginRequest, actor: string, targetMeta: TargetMeta): Record<string, unknown> {
 	const op = String(targetMeta.op || '').trim().toLowerCase();
 	if (op === 'list_namespaces') {
 		const namespaces = listReadableNamespaces(connection, actor);
@@ -484,12 +522,94 @@ function runReadAction(connection, request, actor, targetMeta) {
 		};
 	}
 
-	const namespaceInput = typeof targetMeta.namespace === 'string' ? targetMeta.namespace : '';
+	if (op === 'chat_recall') {
+		const chatQuery = typeof targetMeta.query === 'string' ? (targetMeta.query as string).trim() : '';
+		const chatLimit = toInt(targetMeta.limit, 20, 1, 100);
+		const minImportance = toInt(targetMeta.min_importance, 1, 0, 3);
+		const chatChannel = typeof targetMeta.channel === 'string' ? (targetMeta.channel as string).trim() : '';
+		const conditions: string[] = [
+			'm.flagged_for_memory = true',
+			`m.importance >= ${minImportance}`,
+		];
+		if (chatQuery) {
+			conditions.push(`(to_tsvector('simple', m.content) @@ plainto_tsquery('simple', ${sqlQuote(chatQuery)}) OR m.content ILIKE ${sqlQuote('%' + chatQuery + '%')})`);
+		}
+		if (chatChannel) {
+			conditions.push(`s.channel = ${sqlQuote(chatChannel)}`);
+		}
+		const items = runJson(
+			connection,
+			`SELECT COALESCE(json_agg(row_to_json(t))::text, '[]')
+			FROM (
+				SELECT
+					m.id AS message_id,
+					m.content,
+					m.role,
+					m.importance,
+					m.tags,
+					m.created_at,
+					m.routed_resource,
+					m.response_mode,
+					s.session_key,
+					s.channel,
+					s.agent_id,
+					s.id AS session_id,
+					s.message_count AS session_message_count
+				FROM pinokio_chat.messages m
+				JOIN pinokio_chat.sessions s ON s.id = m.session_id
+				WHERE ${conditions.join(' AND ')}
+				ORDER BY m.importance DESC, m.created_at DESC
+				LIMIT ${chatLimit}
+			) t;`
+		);
+		return {
+			op: 'chat_recall',
+			actor,
+			count: Array.isArray(items) ? items.length : 0,
+			items: Array.isArray(items) ? items : [],
+			hint: 'Use session_id with op=chat_context to retrieve full conversation context'
+		};
+	}
+
+	if (op === 'chat_context') {
+		const sessionId = Number(targetMeta.session_id);
+		if (!Number.isFinite(sessionId)) {
+			fail('chat_context requires session_id (integer)');
+		}
+		const session = runJson(
+			connection,
+			`SELECT COALESCE(
+				(SELECT row_to_json(s)::text FROM pinokio_chat.sessions s WHERE s.id = ${sessionId}),
+				'null'
+			);`
+		);
+		const messages = runJson(
+			connection,
+			`SELECT COALESCE(
+				(SELECT json_agg(row_to_json(t))::text
+				 FROM (
+					SELECT * FROM pinokio_chat.messages
+					WHERE session_id = ${sessionId}
+					ORDER BY turn_index ASC
+				 ) t),
+				'[]'
+			);`
+		);
+		return {
+			op: 'chat_context',
+			actor,
+			session,
+			messages: Array.isArray(messages) ? messages : [],
+			message_count: Array.isArray(messages) ? messages.length : 0
+		};
+	}
+
+	const namespaceInput = typeof targetMeta.namespace === 'string' ? targetMeta.namespace as string : '';
 	const namespace = namespaceInput ? normalizeNamespace(namespaceInput, actor) : null;
-	const key = typeof targetMeta.key === 'string' ? targetMeta.key.trim() : '';
+	const key = typeof targetMeta.key === 'string' ? (targetMeta.key as string).trim() : '';
 	const id = Number.isFinite(Number(targetMeta.id)) ? Math.trunc(Number(targetMeta.id)) : null;
-	const query = typeof targetMeta.query === 'string' ? targetMeta.query.trim() : '';
-	const tag = typeof targetMeta.tag === 'string' ? targetMeta.tag.trim() : '';
+	const query = typeof targetMeta.query === 'string' ? (targetMeta.query as string).trim() : '';
+	const tag = typeof targetMeta.tag === 'string' ? (targetMeta.tag as string).trim() : '';
 	const limit = toInt(targetMeta.limit, DEFAULT_LIMIT, 1, MAX_LIMIT);
 
 	if (namespace && (key || id !== null || op === 'get')) {
@@ -517,7 +637,7 @@ function runReadAction(connection, request, actor, targetMeta) {
 		};
 	}
 
-	let readableNamespaces = [];
+	let readableNamespaces: string[] = [];
 	if (namespace) {
 		const access = loadNamespaceAccess(connection, namespace, actor);
 		if (!access) {
@@ -527,7 +647,7 @@ function runReadAction(connection, request, actor, targetMeta) {
 		readableNamespaces = [namespace];
 	} else {
 		const rows = listReadableNamespaces(connection, actor);
-		readableNamespaces = rows.map((row) => row.namespace_key).filter((value) => typeof value === 'string');
+		readableNamespaces = rows.map((row) => row.namespace_key as string).filter((value) => typeof value === 'string');
 	}
 
 	if (readableNamespaces.length === 0) {
@@ -585,7 +705,7 @@ function runReadAction(connection, request, actor, targetMeta) {
 	};
 }
 
-function runGrantOperation(connection, actor, targetMeta) {
+function runGrantOperation(connection: DbConnection, actor: string, targetMeta: TargetMeta): Record<string, unknown> {
 	const namespace = resolveNamespace(targetMeta, actor);
 	const access = ensureNamespaceForAction(connection, actor, namespace, 'update', targetMeta);
 	if (!canPerform(access, actor, 'update') || !hasAdmin(access, actor)) {
@@ -654,7 +774,7 @@ function runGrantOperation(connection, actor, targetMeta) {
 	};
 }
 
-function runSetPolicyOperation(connection, actor, targetMeta) {
+function runSetPolicyOperation(connection: DbConnection, actor: string, targetMeta: TargetMeta): Record<string, unknown> {
 	const namespace = resolveNamespace(targetMeta, actor);
 	const access = ensureNamespaceForAction(connection, actor, namespace, 'update', targetMeta);
 	if (!hasAdmin(access, actor)) {
@@ -684,7 +804,7 @@ function runSetPolicyOperation(connection, actor, targetMeta) {
 	};
 }
 
-function runCreateMemory(connection, request, actor, targetMeta) {
+function runCreateMemory(connection: DbConnection, request: PluginRequest, actor: string, targetMeta: TargetMeta): Record<string, unknown> {
 	const op = String(targetMeta.op || '').trim().toLowerCase();
 	if (op === 'grant' || op === 'revoke') {
 		return runGrantOperation(connection, actor, targetMeta);
@@ -693,14 +813,84 @@ function runCreateMemory(connection, request, actor, targetMeta) {
 		return runSetPolicyOperation(connection, actor, targetMeta);
 	}
 
+	if (op === 'remember_from_chat') {
+		const messageId = Number(targetMeta.message_id);
+		const sessionId = Number(targetMeta.session_id);
+		if (!Number.isFinite(messageId) || !Number.isFinite(sessionId)) {
+			fail('remember_from_chat requires message_id and session_id (integers)');
+		}
+		const chatContent =
+			(typeof targetMeta.content === 'string' && (targetMeta.content as string).trim()) ||
+			(typeof targetMeta.text === 'string' && (targetMeta.text as string).trim()) ||
+			String(request.summary || '').trim();
+		if (!chatContent) {
+			fail('remember_from_chat requires content/text');
+		}
+		const chatNamespace = resolveNamespace(targetMeta, actor);
+		ensureNamespaceForAction(connection, actor, chatNamespace, 'create', targetMeta);
+		const chatKey = typeof targetMeta.key === 'string' && (targetMeta.key as string).trim()
+			? (targetMeta.key as string).trim()
+			: `chat_${sessionId}_${messageId}_${Date.now().toString(36)}`;
+		const chatMetadata = asObject(targetMeta.metadata);
+		const chatTags = asStringArray(targetMeta.tags);
+
+		// Create the memory entry
+		const memItem = runJson(
+			connection,
+			`WITH upserted AS (
+				INSERT INTO pinokio_memory.memories (
+					namespace_key, memory_key, content, metadata, tags, source_actor,
+					created_at, updated_at
+				) VALUES (
+					${sqlQuote(chatNamespace)}, ${sqlQuote(chatKey)}, ${sqlQuote(chatContent)},
+					${sqlJson(chatMetadata)}, ${sqlTextArray(chatTags)}, ${sqlQuote(actor)},
+					now(), now()
+				)
+				ON CONFLICT (namespace_key, memory_key) DO UPDATE SET
+					content = EXCLUDED.content, metadata = EXCLUDED.metadata,
+					tags = EXCLUDED.tags, source_actor = EXCLUDED.source_actor,
+					updated_at = now()
+				RETURNING *
+			)
+			SELECT COALESCE((SELECT ${memoryRowProjection('upserted')}::text FROM upserted LIMIT 1), 'null');`
+		);
+
+		// Create cross-reference in pinokio_chat.memory_refs
+		try {
+			runSql(
+				connection,
+				`INSERT INTO pinokio_chat.memory_refs (
+					message_id, session_id, memory_namespace, memory_key,
+					ref_type, excerpt
+				) VALUES (
+					${messageId}, ${sessionId}, ${sqlQuote(chatNamespace)}, ${sqlQuote(chatKey)},
+					'excerpt', ${sqlQuote(chatContent.slice(0, 500))}
+				)
+				ON CONFLICT (message_id, memory_namespace, memory_key) DO NOTHING;`
+			);
+		} catch {
+			// Cross-ref creation is best-effort; pinokio_chat schema may not exist
+		}
+
+		return {
+			op: 'remember_from_chat',
+			actor,
+			namespace: chatNamespace,
+			memory_key: chatKey,
+			message_id: messageId,
+			session_id: sessionId,
+			item: memItem
+		};
+	}
+
 	const namespace = resolveNamespace(targetMeta, actor);
 	ensureNamespaceForAction(connection, actor, namespace, 'create', targetMeta);
 
-	const keyRaw = typeof targetMeta.key === 'string' ? targetMeta.key.trim() : '';
+	const keyRaw = typeof targetMeta.key === 'string' ? (targetMeta.key as string).trim() : '';
 	const key = keyRaw || `mem_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
 	const content =
-		(typeof targetMeta.content === 'string' && targetMeta.content.trim()) ||
-		(typeof targetMeta.text === 'string' && targetMeta.text.trim()) ||
+		(typeof targetMeta.content === 'string' && (targetMeta.content as string).trim()) ||
+		(typeof targetMeta.text === 'string' && (targetMeta.text as string).trim()) ||
 		String(request.summary || '').trim();
 	if (!content) {
 		fail('memory create requires content/text or non-empty task summary');
@@ -752,7 +942,7 @@ function runCreateMemory(connection, request, actor, targetMeta) {
 	};
 }
 
-function runUpdateMemory(connection, actor, targetMeta) {
+function runUpdateMemory(connection: DbConnection, actor: string, targetMeta: TargetMeta): Record<string, unknown> {
 	const op = String(targetMeta.op || '').trim().toLowerCase();
 	if (op === 'grant' || op === 'revoke') {
 		return runGrantOperation(connection, actor, targetMeta);
@@ -765,7 +955,7 @@ function runUpdateMemory(connection, actor, targetMeta) {
 	ensureNamespaceForAction(connection, actor, namespace, 'update', targetMeta);
 
 	const id = Number.isFinite(Number(targetMeta.id)) ? Math.trunc(Number(targetMeta.id)) : null;
-	const key = typeof targetMeta.key === 'string' ? targetMeta.key.trim() : '';
+	const key = typeof targetMeta.key === 'string' ? (targetMeta.key as string).trim() : '';
 	if (id === null && !key) {
 		fail('memory update requires id or key');
 	}
@@ -773,9 +963,9 @@ function runUpdateMemory(connection, actor, targetMeta) {
 	const hasContent = typeof targetMeta.content === 'string' || typeof targetMeta.text === 'string';
 	const nextContent =
 		typeof targetMeta.content === 'string'
-			? targetMeta.content
+			? targetMeta.content as string
 			: typeof targetMeta.text === 'string'
-				? targetMeta.text
+				? targetMeta.text as string
 				: '';
 	const hasMetadata = targetMeta.metadata && typeof targetMeta.metadata === 'object' && !Array.isArray(targetMeta.metadata);
 	const hasTags = Array.isArray(targetMeta.tags);
@@ -812,7 +1002,7 @@ function runUpdateMemory(connection, actor, targetMeta) {
 	};
 }
 
-function runDeleteMemory(connection, actor, targetMeta) {
+function runDeleteMemory(connection: DbConnection, actor: string, targetMeta: TargetMeta): Record<string, unknown> {
 	const op = String(targetMeta.op || '').trim().toLowerCase();
 	const namespace = resolveNamespace(targetMeta, actor);
 	ensureNamespaceForAction(connection, actor, namespace, 'delete', targetMeta);
@@ -844,7 +1034,7 @@ function runDeleteMemory(connection, actor, targetMeta) {
 	}
 
 	const id = Number.isFinite(Number(targetMeta.id)) ? Math.trunc(Number(targetMeta.id)) : null;
-	const key = typeof targetMeta.key === 'string' ? targetMeta.key.trim() : '';
+	const key = typeof targetMeta.key === 'string' ? (targetMeta.key as string).trim() : '';
 	if (id === null && !key) {
 		fail('memory delete requires id or key');
 	}
@@ -884,7 +1074,7 @@ try {
 	ensureSchema(connection);
 
 	const actor = resolveActor(request, targetMeta);
-	let result;
+	let result: Record<string, unknown>;
 	if (action === 'read') {
 		result = runReadAction(connection, request, actor, targetMeta);
 	} else if (action === 'create') {

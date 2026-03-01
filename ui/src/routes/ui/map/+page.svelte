@@ -16,11 +16,18 @@
 
 	let { data } = $props<{ data: PageData }>();
 
-	let graph = $state<TopologyGraph>(data.graph ?? { nodes: [], edges: [], refreshedAt: '' });
-	let surfaces = $state<UiExtensionSurface[]>((data as { surfaces?: UiExtensionSurface[] }).surfaces ?? []);
-	let services = $state<ManagedServiceStatus[]>((data as { services?: ManagedServiceStatus[] }).services ?? []);
+	const emptyGraph: TopologyGraph = { nodes: [], edges: [], refreshedAt: '' };
+	let graph = $state<TopologyGraph>(emptyGraph);
+	let surfaces = $state<UiExtensionSurface[]>([]);
+	let services = $state<ManagedServiceStatus[]>([]);
 	let selectedNode = $state<TopologyNode | null>(null);
 	let layoutLocked = $state(false);
+
+	$effect(() => {
+		graph = data.graph ?? emptyGraph;
+		surfaces = (data as { surfaces?: UiExtensionSurface[] }).surfaces ?? [];
+		services = (data as { services?: ManagedServiceStatus[] }).services ?? [];
+	});
 
 	// Drill-down state
 	let focusedGroupId = $state<string | null>(null);

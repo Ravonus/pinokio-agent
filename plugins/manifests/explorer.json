@@ -22,7 +22,7 @@
   "plugins": [
     {
       "name": "explorer_agent",
-      "command": "node plugins/explorer-agent-plugin.mjs",
+      "command": "node plugins/explorer-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["create", "read", "update", "delete"],
       "managed_only": true,
@@ -51,7 +51,7 @@
     },
     {
       "name": "explorer_read_agent",
-      "command": "node plugins/explorer-read-agent-plugin.mjs",
+      "command": "node plugins/explorer-read-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["read"],
       "managed_only": true,
@@ -80,7 +80,7 @@
     },
     {
       "name": "explorer_write_agent",
-      "command": "node plugins/explorer-write-agent-plugin.mjs",
+      "command": "node plugins/explorer-write-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["create", "read", "update", "delete"],
       "managed_only": true,

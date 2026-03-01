@@ -1,150 +1,193 @@
-# pinokio-agent (MVP)
+# pinokio-agent
 
-Minimal Rust-first multi-agent orchestrator using Playwright workers, strict CRUD role split, optional auth, and extensible connection/plugin/hook SDK layers.
+Rust-first multi-agent orchestrator with plugin SDK, socket bus, live topology map, and container isolation. Plugins and workers can be written in **TypeScript or JavaScript**.
 
 ## What this is
 
-- Rust manager is the central policy/coordination brain.
-- Every task is executed by one or more short-lived agents.
-- Agents are split by action (`create`, `read`, `update`, `delete`) when policy is enabled.
-- Isolation is selected per agent (`host` vs `container`) from config + resource risk.
-- Playwright is used only as a worker for web read actions.
+- **Rust manager** is the central policy and coordination brain.
+- Every task is executed by one or more short-lived **agents**.
+- Agents are split by action (`create`, `read`, `update`, `delete`) when CRUD policy is enabled.
+- Isolation is selected per agent (`host` vs `container`) from config and resource risk.
+- **Playwright** is used as a managed worker for web read actions.
 - Connections, plugins, and hooks are command-based and run through manager-controlled flow.
 - Optional auth/login and optional marketplace tracking are built-in but disabled by default.
+- Plugins and workers are written in TypeScript (or JavaScript) and executed via Node's native TS support (Node 23.6+).
 
-This is intentionally small and opinionated, built as the `pinokio.ai` agent runtime baseline.
+Built as the [pinokio.ai](https://pinokio.ai) agent runtime baseline. More detail in `docs/ARCHITECTURE.md`.
 
-More detail: `docs/ARCHITECTURE.md`.
+## Requirements
+
+- **Rust** toolchain (for building the manager binary)
+- **Node.js 23.6+** (for native TypeScript execution without flags) or Node 22+ with `--experimental-strip-types`
+- **Docker** (optional, for container agent isolation)
 
 ## Layout
 
-- `src/main.rs`: CLI entry (`run`, `setup`, `configure`, `ui`, `login`, `logout`, `auth-status`, internal `agent` + `micro` modes).
-- `src/manager.rs`: manager orchestration and socket protocol.
-- `src/policy.rs`: planning rules (CRUD split, isolation, execution kind).
-- `src/agent.rs`: agent runtime (playwright + plugin + connection + noop).
-- `src/auth.rs`: optional auth/login provider + local session handling.
-- `src/marketplace.rs`: optional external ecosystem event tracking.
-- `src/llm.rs`: pluggable LLM layer (OpenAI-compatible, Anthropic, command/CLI).
-- `src/runtime.rs`: host/docker/swarm orchestration for short-lived task agents.
-- `src/ui_pages.rs`: manager-side publisher for agent-generated UI pages.
-- `workers/playwright-service.mjs`: Node Playwright Chromium service (spawned/controlled by Rust).
-- `plugins/echo-plugin.mjs`: example plugin command.
-- `plugins/telegram-connection.mjs`: example connection command.
-- `hooks/connection-router.mjs`: example extension hook command.
-- `sdk/typescript/pinokio-sdk.mjs`: helper SDK for plugin/connection authors.
-- `config/agent.toml`: default config (profiles/connectors/connections/policies/hooks/plugins/auth/marketplace).
-
-## Runtime model
-
-1. `run` command creates a `TaskRequest`.
-2. Manager plans one or more `AgentSpec`s.
-3. Each agent is spawned with host/container isolation.
-4. Manager and agent communicate with JSON lines over unix sockets (or TCP bridge for macOS container agents).
-5. Container agents run in `micro` mode by default.
-6. Micro agents can request child tasks only through manager permission gates.
-7. Micro agents can request manager-approved hook extensions (`hook_request`) through the same protocol.
-8. Any subsystem can emit event hooks (`task.*`, `agent.*`, `runtime.*`, `cli.*`, `setup.*`, etc).
-9. Manager aggregates all agent results into one task report.
+```
+src/                    Rust source (manager binary)
+config/agent.toml       Runtime configuration
+plugins/                TypeScript plugin agents
+  manifests/            Plugin manifest JSON files (pinokio.plugin/v1)
+  skills/               Markdown skill files injected into agent context
+  readmes/              Human-readable plugin docs
+workers/                TypeScript Playwright service
+hooks/                  TypeScript event hook extensions
+sdk/
+  typescript/           Typed SDK for plugin/connection/hook authors
+  rust/                 Rust scaffold for plugin authors
+ui/                     Svelte + Tailwind frontend (topology map, config UI)
+plugin-manifests/       External/starter plugin manifests
+docs/                   Architecture docs
+```
 
 ## Quick start
 
-1. Build/run Rust binary (requires Rust toolchain):
+1. Build and run the Rust binary:
 
 ```bash
 cargo run -- run --task "read pinokio.ai homepage title" --resource web --action read --target https://pinokio.ai
 ```
 
-2. Optional explicit setup check (same checks are auto-run on `run`):
-
-```bash
-cargo run -- setup
-```
-
-3. Optional auth login (only needed if `auth.required=true`):
-
-```bash
-cargo run -- login
-```
-
-Example plugin task:
-
-```bash
-cargo run -- run --task "read plugin health" --resource plugin:echo --action read
-```
-
-Containerized chat plugin task (single-shot):
-
-```bash
-cargo run -- run --task "Explain Rust lifetimes simply" --resource plugin:chat_agent --action read --profile codex
-```
-
-Containerized child-chat-agent spawn (via plugin extension path):
-
-```bash
-cargo run -- run --task "Draft a release note intro" --resource plugin:chat_agent --action create --profile claude_code
-```
-
-Implementation note:
-- `plugin:chat_agent` runs as a containerized orchestrator plugin and issues `spawn_child`.
-- spawned child runs `plugin:chat_worker_agent` (containerized) for normal chat replies.
-- optional `runtime:"unsafe_host"` delegates from `plugin:chat_worker_agent` to managed-only `plugin:unsafe_host_agent` on host.
-- `plugin:unsafe_host_agent` cannot be invoked directly; it only accepts managed child requests.
-
-Optional structured target for `plugin:chat_agent`:
-
-```json
-{"message":"Give me 3 commit message options","profile":"codex","system":"Keep it terse","runtime":"container"}
-```
-
-Connection task (example `connection:telegram`):
-
-```bash
-cargo run -- run --task "check telegram agent inbox" --resource connection:telegram --action read
-```
-
-Custom container image per task:
-
-```bash
-cargo run -- run --task "scan files safely" --resource filesystem --action read --image ghcr.io/pinokio-ai/sandbox:latest
-```
-
-Playwright runtime is managed by Rust via config/env (`PINOKIO_PLAYWRIGHT_SERVICE_COMMAND`, install command, timeout, container override).
-
-## UI model layer (Svelte + Tailwind + HTMX)
-
-This repo now includes a consumer-friendly UI shell in `ui/` with a strict JSON UI model that agents can target:
-
-- `GET /api/ui-model?view=health|config|configure|apps`: typed `UiModel` JSON payloads.
-- `/ui?view=health|config|configure|apps`: shared renderer for model-driven pages.
-- `/ui/configure`: consumer configuration UI for OpenAI/Claude credentials plus extension-surface registration/removal.
-- `/ui/apps` and `/ui/apps/:id`: system-published pages generated by agents/plugins/connections.
-- `GET/POST /api/configure`: manager-side configure API used by the UI (`view=status|doctor|surfaces`, no task-agent spawn).
-- `POST /api/ui-form`: built-in form submission endpoint for agent-generated pages.
-- `/fragments/health` and `/fragments/config`: HTMX partial updates for lightweight live panels.
-
-Start the UI through the Rust app:
+2. Start the UI:
 
 ```bash
 cargo run -- ui --configure
 ```
 
-Then open `http://127.0.0.1:5173/ui/configure`.
+Then open `https://127.0.0.1:5173/ui/configure`.
 
-After startup, task execution can be done directly from the Configure UI (`Run Task From App` panel), so users do not need additional terminal commands.
+3. Example plugin task:
 
-OAuth command runtimes (`codex`, `claude`) are now bootstrapped automatically:
-- missing CLI binaries are installed on-demand using OS-appropriate install commands
-- containerized agents inherit host OAuth session state by mounting `~/.codex` / `~/.claude*` when present
+```bash
+cargo run -- run --task "read plugin health" --resource plugin:echo --action read
+```
 
-The model schema and builders live in:
+4. Chat with LLM:
 
-- `ui/src/lib/ui/model.ts`
-- `ui/src/lib/ui/runtime.ts`
-- `ui/src/lib/components/UiRenderer.svelte`
+```bash
+cargo run -- run --task "Explain Rust lifetimes simply" --resource plugin:chat_agent --action read --profile codex
+```
 
-## Plug your LLM
+## Writing plugins (TypeScript or JavaScript)
 
-Use app-driven commands (consumer flow):
+Plugins are short-lived Node processes invoked by the manager via `sh -c "node plugins/my-plugin.ts"`. Node 23.6+ runs `.ts` files natively. Users on Node 22 can use `--experimental-strip-types`.
+
+### TypeScript plugin
+
+```typescript
+// plugins/my-plugin.ts
+import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.ts';
+
+try {
+  const { request } = pluginContext();
+  respond({
+    ok: true,
+    plugin: 'my_plugin',
+    message: `handled: ${request.summary}`
+  });
+} catch (error: unknown) {
+  fail(error instanceof Error ? error.message : String(error));
+}
+```
+
+### JavaScript plugin
+
+```javascript
+// plugins/my-plugin.mjs
+import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.ts';
+
+try {
+  const { request } = pluginContext();
+  respond({
+    ok: true,
+    plugin: 'my_plugin',
+    message: `handled: ${request.summary}`
+  });
+} catch (error) {
+  fail(error instanceof Error ? error.message : String(error));
+}
+```
+
+Both `.ts` and `.mjs`/`.js` files work. Register your plugin in a manifest JSON file under `plugins/manifests/`.
+
+### SDK exports
+
+The SDK (`sdk/typescript/pinokio-sdk.ts`) provides:
+
+| Function | Purpose |
+|---|---|
+| `pluginContext()` | Parse `PINOKIO_PLUGIN_REQUEST_JSON` and `PINOKIO_PLUGIN_SPEC_JSON` from env |
+| `connectionContext()` | Parse connection request/spec/name from env |
+| `respond(data)` | Write JSON result to stdout |
+| `spawnChild(request)` | Emit `spawn_child` payload for manager-mediated child task |
+| `requestHook(name, payload)` | Emit `hook_request` for named extension hooks |
+| `socketPublish(channel, payload)` | Publish to socket bus channel |
+| `socketRead(channel, options)` | Read from socket bus channel |
+| `socketConsume(channel, options)` | Consume from socket bus channel |
+| `fail(message)` | Write error to stderr and exit |
+
+### Plugin manifest
+
+```json
+{
+  "api_version": "pinokio.plugin/v1",
+  "id": "my.plugin",
+  "name": "My Plugin",
+  "version": "1.0.0",
+  "plugins": [
+    {
+      "name": "my_plugin",
+      "command": "node plugins/my-plugin.ts",
+      "host_only": false,
+      "allowed_actions": ["read", "create"],
+      "permissions": {
+        "create": true,
+        "read": true,
+        "spawn_child": false,
+        "network": false
+      }
+    }
+  ]
+}
+```
+
+## Runtime model
+
+1. `run` command creates a `TaskRequest`.
+2. Manager plans one or more `AgentSpec`s (CRUD split, isolation, execution kind).
+3. Each agent is spawned with host or container isolation.
+4. Manager and agent communicate via JSON lines over unix sockets.
+5. Container agents run in `micro` mode by default.
+6. Micro agents can request child tasks through manager permission gates.
+7. Manager aggregates all agent results into one task report.
+
+## Plugin output protocol
+
+Plugins write JSON to stdout. The manager looks for extension keys:
+
+| JSON Key | Meaning |
+|---|---|
+| `spawn_child` | Request manager to spawn a child task |
+| `hook_request` | Request a named extension hook |
+| `socket_request` | Socket bus publish/read/consume |
+| `ui_page` / `ui_pages` | Publish agent-generated UI pages |
+| (anything else) | Task result data |
+
+## Socket bus
+
+The socket bus is a file-backed JSONL message system in `.pka/socket-bus/`. Plugins can publish and consume messages across channels. The topology map visualizes live socket bus activity with flowing edge animations.
+
+## Topology map
+
+The `/ui/map` page shows a live network topology of all agents, plugins, services, and connections. Features:
+
+- Force-directed graph layout with D3
+- Plugin group drill-down (click a group node to see its agents)
+- Live activity visualization (flowing dots on edges from socket bus data)
+- Activity feed panel showing recent socket bus messages
+- Auto-refresh every 30s (topology) and 5s (activity)
+
+## LLM configuration
 
 ```bash
 # OpenAI API
@@ -153,250 +196,63 @@ cargo run -- configure openai --api-key "<OPENAI_KEY>"
 # Claude API
 cargo run -- configure claude-api --api-key "<ANTHROPIC_KEY>"
 
-# Claude Code (OAuth command or direct token)
+# Claude Code (OAuth)
 cargo run -- configure claude-code --oauth-command "claude auth token --json"
-cargo run -- configure login --credential claude_code_main
-```
 
-`--api-key` can be omitted and the app will prompt securely via stdin.
-
-Inspect configuration health:
-
-```bash
+# Health check
 cargo run -- configure doctor
-cargo run -- configure status
 ```
 
-## Agent-generated UI pages
-
-Agents/plugins/connections can publish full pages by returning `ui_page` or `ui_pages` in their JSON result.
-Manager writes them into `ui.pages_dir` and they appear automatically in `/ui/apps`.
-`UiModel` now supports a `form` block, so agents can collect user input directly in these pages.
-
-Payload contract:
-
-```json
-{
-  "ui_page": {
-    "id": "setup-wizard",
-    "title": "Setup Wizard",
-    "route": "/ui/apps/setup-wizard",
-    "model": {
-      "id": "setup-wizard",
-      "title": "Setup Wizard",
-      "sections": [
-        {
-          "id": "step-1",
-          "title": "Collect input",
-          "blocks": [
-            { "type": "notice", "tone": "neutral", "message": "Tell me what to configure." }
-          ]
-        }
-      ]
-    }
-  }
-}
-```
-
-The same `UiModel` schema powers built-in views and these system-published pages.
-
-Then open:
-
-```text
-/ui/apps
-/ui/apps/<page-id>
-```
-
-By default the app reads/writes `~/.pinokio-agent/config.toml` (falls back to `config/agent.toml` in this repo).
-
-Under the hood, config has two layers:
-
-- `api_layers`: how to reach an LLM backend (`openai_compatible`, `anthropic_messages`, or `command` for CLI like Claude Code)
-- `credentials`: API key/OAuth definitions (supports multiple keys and multiple credential entries)
-- `llm_profiles`: model + limits + fallback that reference an `api_layer` and can override credential
-
-Quick LLM test:
-
-```bash
-cargo run -- llm --profile codex --prompt "Summarize security controls for this agent runtime"
-```
-
-Task execution can use a profile directly:
-
-```bash
-cargo run -- run --task "plan a safe email audit" --resource email --action read --profile claude_code
-```
-
-Required env vars (by default):
-
-- none required if you set tokens via `configure ...` commands
-- optional env fallback is still supported via `credentials.<name>.env`
+LLM profiles are defined in `config/agent.toml` under `[llm_profiles.*]`. Each profile references an `api_layer` (OpenAI-compatible, Anthropic Messages, or CLI command) and optionally a credential.
 
 ## Container agents
 
 - Rust orchestrator spins up containers only when a task needs them.
 - Supported backends: `docker` and `swarm`.
-- Containers are short-lived and are removed after agent completion.
-- Container agents run `micro` child runtime (`pinokio-agent micro ...`) by default.
+- Containers are short-lived and removed after agent completion.
+- Host binary injection lets containers run the installed Rust agent without custom images.
 - Per-task custom images are allowed by policy allowlist.
-- Host binary injection lets containers run the installed Rust agent without requiring users to build custom images first.
 
-`config/agent.toml`:
-
-```toml
-[orchestrator]
-backend = "auto" # auto | docker | swarm
-enabled = true
-default_image = "ghcr.io/pinokio-ai/pinokio-agent-micro:local"
-allow_custom_images = true
-allowed_custom_image_prefixes = ["ghcr.io/pinokio-ai/", "mcr.microsoft.com/playwright", "alpine:"]
-agent_entrypoint = "/usr/local/bin/pinokio-agent"
-mounts = ["/tmp:/tmp"]
-mount_workspace = true
-workspace_mount_path = "/app"
-swarm_poll_interval_ms = 1000
-allow_backend_fallback = true
-auto_init_swarm = false
-auto_pull_images = true
-inject_host_binary = true
-
-[orchestrator.resource_images]
-filesystem = "ghcr.io/pinokio-ai/pinokio-agent-micro:local"
-plugins = "ghcr.io/pinokio-ai/pinokio-agent-micro:local"
-connections = "ghcr.io/pinokio-ai/pinokio-agent-micro:local"
-```
-
-Manager child-spawn policy:
+## Event hooks
 
 ```toml
-[manager]
-child_spawn_enabled = true
-child_spawn_max_depth = 2
-child_spawn_container_only = true
-hook_extensions_enabled = true
-hook_extensions_container_only = true
-```
-
-Plugin-triggered child spawn (micro mode only):
-
-- Plugin can return JSON with `spawn_child`:
-
-```json
-{
-  "result": {"status": "ok"},
-  "spawn_child": {
-    "summary": "read account inbox headers",
-    "resource": "email",
-    "action": "read",
-    "target": null,
-    "container_image": null,
-    "llm_profile": "claude_code"
-  }
-}
-```
-
-- Manager applies policy gates and either returns a child `TaskReport` or denies with reason.
-
-Hook extension request (micro mode only):
-
-```json
-{
-  "result": {"status": "ok"},
-  "hook_request": {
-    "name": "connection_router",
-    "payload": {"connection": "telegram", "operation": "send_message"}
-  }
-}
-```
-
-- Manager checks plugin/connection capabilities + hook extension policy and then runs `[hooks.extensions.<name>]`.
-
-System-wide event hooks:
-
-- Configure `[hooks.events]` with wildcard or exact names:
-
-```toml
-[hooks.events."*"]
-commands = ["node hooks/global-observer.mjs"]
-
 [hooks.events."task.*"]
-commands = ["node hooks/task-observer.mjs"]
+commands = ["node hooks/task-observer.ts"]
 timeout_ms = 15000
 fail_open = true
-max_retries = 1
-
-[hooks.events."runtime.spawn.container.docker"]
-commands = ["node hooks/runtime-spawn-audit.mjs"]
 ```
 
-- Matching rules:
-`"*"` = all events, `"prefix.*"` = prefix match, `"exact.name"` = exact.
-- Hook env:
-`PINOKIO_HOOK_EVENT`, `PINOKIO_HOOK_CONTEXT_JSON`.
-
-## Optional Auth + Marketplace
-
-- Auth is optional and disabled by default.
-- Set `auth.enabled=true` and optionally `auth.required=true` to enforce login before `run`.
-- `auth.provider=command` lets you swap auth backend with a single command (`auth.login_command` / `auth.logout_command`).
-- Marketplace tracking is separate and optional (`[marketplace]`), disabled by default.
-
-Example:
-
-```toml
-[auth]
-enabled = true
-required = false
-provider = "command"
-login_command = "pinokio-auth login --json"
-logout_command = "pinokio-auth logout"
-
-[marketplace]
-enabled = false
-endpoint = "https://api.pinokio.ai/v1/events"
-api_key_env = "PINOKIO_MARKETPLACE_KEY"
-source = "oss"
-send_task_events = true
-```
+Hook env: `PINOKIO_HOOK_EVENT`, `PINOKIO_HOOK_CONTEXT_JSON`.
 
 ## Connections vs Plugins vs Hooks
 
-- `connection:<name>`: external system bridge (Telegram, email, bank APIs, infra APIs).
-- `plugin:<name>`: feature logic on top of core runtime behavior.
-- `hooks`: manager-controlled extension points (named extension hooks and system-wide event hooks).
+| Kind | Purpose | Example |
+|---|---|---|
+| `connection:<name>` | External system bridge | Telegram, email, bank APIs |
+| `plugin:<name>` | Feature logic on core runtime | Chat agent, database agent, explorer |
+| `hooks` | Manager-controlled extension points | Event observers, connection routers |
 
-All three are command-driven, capability-gated, and policy-checked by manager.
+All three are command-driven, capability-gated, and policy-checked by the manager.
 
-## SDK
+## Built-in plugins
 
-- TypeScript helper: `sdk/typescript/pinokio-sdk.mjs`
-- Rust helper scaffold: `sdk/rust/src/lib.rs`
-
-These helpers standardize request parsing and emitting `spawn_child` / `hook_request` payloads.
-
-## Playwright + Chromium control (Rust-managed)
-
-- Rust manager injects Playwright runtime settings into every agent process.
-- Host/container can use different Playwright service commands.
-- Optional Chromium auto-install can run before retrying failed Playwright execution.
-
-`config/agent.toml`:
-
-```toml
-[playwright]
-managed_by_rust = true
-auto_install_node_deps = true
-node_setup_command = "npm install --omit=dev"
-auto_install_chromium = true
-install_command = "npx playwright install chromium"
-host_service_command = "node workers/playwright-service.mjs"
-container_service_command = "docker run --rm -i --network host mcr.microsoft.com/playwright:v1.58.2-noble node /app/workers/playwright-service.mjs"
-request_timeout_ms = 45000
-```
+| Plugin | Description |
+|---|---|
+| `chat_agent` / `chat_worker_agent` | LLM-backed chat orchestration with child-spawn |
+| `explorer_agent` / `explorer_read_agent` / `explorer_write_agent` | Safe directory read/write with split workers |
+| `postgres_agent` / `db_router_agent` / `db_role_agent` | PostgreSQL with CRUD role split |
+| `memory_agent` | Namespaced memory system on Postgres |
+| `unsafe_host_agent` | Privileged host operations (managed-only) |
+| `echo` | Smoke-test echo plugin |
 
 ## Security defaults
 
-- `always_split_crud = true`
-- high-risk resources default to container for non-read actions
-- host-only connectors keep sensitive credentials local to host processes
-- hooks/plugin/connection commands run only via manager-controlled execution paths
+- `always_split_crud = true` — read and write paths are separated by default
+- High-risk resources default to container for non-read actions
+- Host-only connectors keep sensitive credentials local to host processes
+- Hooks/plugin/connection commands run only via manager-controlled execution paths
+- `unsafe_host_agent` cannot be invoked directly; only through managed child requests
+
+## License
+
+MIT

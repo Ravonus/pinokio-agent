@@ -1,15 +1,30 @@
 import { spawnSync } from 'node:child_process';
-import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.mjs';
+import type { SpawnSyncReturns } from 'node:child_process';
+import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.ts';
+import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
 
-const SUPPORTED_ACTIONS = new Set(['create', 'read', 'update', 'delete']);
-const DEFAULT_READ_SQL =
+const SUPPORTED_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
+const DEFAULT_READ_SQL: string =
 	"SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' ORDER BY table_name LIMIT 100;";
 
-function parseTargetMeta(target) {
+interface ConnectionInfo {
+	container: string;
+	database: string;
+	user: string;
+	password: string;
+	timeoutMs: number;
+}
+
+interface SqlResult {
+	stdout: string;
+	stderr: string;
+}
+
+function parseTargetMeta(target: unknown): Record<string, unknown> {
 	if (typeof target !== 'string') {
 		return {};
 	}
-	const trimmed = target.trim();
+	const trimmed: string = target.trim();
 	if (!trimmed) {
 		return {};
 	}
@@ -17,9 +32,9 @@ function parseTargetMeta(target) {
 		return { sql: trimmed };
 	}
 	try {
-		const parsed = JSON.parse(trimmed);
+		const parsed: unknown = JSON.parse(trimmed);
 		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			return parsed;
+			return parsed as Record<string, unknown>;
 		}
 		return {};
 	} catch {
@@ -27,23 +42,23 @@ function parseTargetMeta(target) {
 	}
 }
 
-function normalizeAction(value) {
+function normalizeAction(value: unknown): string {
 	return String(value || '')
 		.trim()
 		.toLowerCase();
 }
 
-function isReadOnlySql(sql) {
+function isReadOnlySql(sql: string): boolean {
 	return /^(select|with|show|explain)\b/i.test(sql.trim());
 }
 
-function resolveSql(action, summary, targetMeta) {
-	const explicitSql = typeof targetMeta.sql === 'string' ? targetMeta.sql.trim() : '';
+function resolveSql(action: string, summary: unknown, targetMeta: Record<string, unknown>): string {
+	const explicitSql: string = typeof targetMeta.sql === 'string' ? (targetMeta.sql as string).trim() : '';
 	if (explicitSql) {
 		return explicitSql;
 	}
 
-	const summarySql = typeof summary === 'string' ? summary.trim() : '';
+	const summarySql: string = typeof summary === 'string' ? summary.trim() : '';
 	if (summarySql && isReadOnlySql(summarySql)) {
 		return summarySql;
 	}
@@ -54,7 +69,7 @@ function resolveSql(action, summary, targetMeta) {
 	return '';
 }
 
-function requireWriteConfirmation(action, targetMeta) {
+function requireWriteConfirmation(action: string, targetMeta: Record<string, unknown>): void {
 	if (action === 'read') {
 		return;
 	}
@@ -66,35 +81,35 @@ function requireWriteConfirmation(action, targetMeta) {
 	);
 }
 
-function resolveConnection(targetMeta) {
+function resolveConnection(targetMeta: Record<string, unknown>): ConnectionInfo {
 	return {
 		container:
-			(typeof targetMeta.container === 'string' && targetMeta.container.trim()) ||
+			(typeof targetMeta.container === 'string' && (targetMeta.container as string).trim()) ||
 			process.env.PINOKIO_DB_CONTAINER ||
 			'pinokio-postgres-main',
 		database:
-			(typeof targetMeta.database === 'string' && targetMeta.database.trim()) ||
+			(typeof targetMeta.database === 'string' && (targetMeta.database as string).trim()) ||
 			process.env.PINOKIO_DB_NAME ||
 			process.env.PGDATABASE ||
 			'pinokio',
 		user:
-			(typeof targetMeta.user === 'string' && targetMeta.user.trim()) ||
+			(typeof targetMeta.user === 'string' && (targetMeta.user as string).trim()) ||
 			process.env.PINOKIO_DB_USER ||
 			process.env.PGUSER ||
 			'pinokio',
 		password:
-			(typeof targetMeta.password === 'string' && targetMeta.password) ||
+			(typeof targetMeta.password === 'string' && (targetMeta.password as string)) ||
 			process.env.PINOKIO_DB_PASSWORD ||
 			process.env.PGPASSWORD ||
 			'',
-		timeoutMs: Number.isFinite(targetMeta.timeout_ms)
+		timeoutMs: Number.isFinite(targetMeta.timeout_ms as number)
 			? Math.min(Math.max(Number(targetMeta.timeout_ms), 1_000), 120_000)
 			: 30_000
 	};
 }
 
-function runSql(connection, sql) {
-	const args = ['exec', '-i'];
+function runSql(connection: ConnectionInfo, sql: string): SqlResult {
+	const args: string[] = ['exec', '-i'];
 	if (connection.password) {
 		args.push('-e', `PGPASSWORD=${connection.password}`);
 	}
@@ -115,7 +130,7 @@ function runSql(connection, sql) {
 		sql
 	);
 
-	const out = spawnSync('docker', args, {
+	const out: SpawnSyncReturns<string> = spawnSync('docker', args, {
 		encoding: 'utf8',
 		env: process.env,
 		timeout: connection.timeoutMs
@@ -132,11 +147,11 @@ function runSql(connection, sql) {
 	};
 }
 
-function rowCountFromCsv(stdout) {
+function rowCountFromCsv(stdout: string): number {
 	if (!stdout) {
 		return 0;
 	}
-	const lines = stdout.split(/\r?\n/).filter((line) => line.length > 0);
+	const lines: string[] = stdout.split(/\r?\n/).filter((line: string) => line.length > 0);
 	if (lines.length <= 1) {
 		return 0;
 	}
@@ -144,16 +159,16 @@ function rowCountFromCsv(stdout) {
 }
 
 try {
-	const { request } = pluginContext();
-	const action = normalizeAction(request.action);
+	const { request }: { request: PluginRequest } = pluginContext();
+	const action: string = normalizeAction(request.action);
 	if (!SUPPORTED_ACTIONS.has(action)) {
 		fail(`unsupported action '${action}' for postgres_agent`);
 	}
 
-	const targetMeta = parseTargetMeta(request.target);
+	const targetMeta: Record<string, unknown> = parseTargetMeta(request.target);
 	requireWriteConfirmation(action, targetMeta);
 
-	const sql = resolveSql(action, request.summary, targetMeta);
+	const sql: string = resolveSql(action, request.summary, targetMeta);
 	if (!sql) {
 		fail("missing SQL. Provide target JSON {\"sql\":\"...\"}.");
 	}
@@ -161,8 +176,8 @@ try {
 		fail('read action only accepts SELECT/SHOW/WITH/EXPLAIN SQL');
 	}
 
-	const connection = resolveConnection(targetMeta);
-	const result = runSql(connection, sql);
+	const connection: ConnectionInfo = resolveConnection(targetMeta);
+	const result: SqlResult = runSql(connection, sql);
 
 	respond({
 		ok: true,
@@ -176,6 +191,6 @@ try {
 		csv: result.stdout,
 		stderr: result.stderr || null
 	});
-} catch (error) {
+} catch (error: unknown) {
 	fail(error instanceof Error ? error.message : String(error));
 }

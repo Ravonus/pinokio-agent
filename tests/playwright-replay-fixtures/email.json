@@ -1,0 +1,39 @@
+{
+  "name": "email-cleanup",
+  "host": "outlook.live.com",
+  "labels": [
+    { "label": "select_row", "selector_hint": "div[role=\"checkbox\"]" },
+    { "label": "delete_button", "selector_hint": "button[aria-label=\"Delete\"]" },
+    { "label": "archive_button", "selector_hint": "button[aria-label=\"Archive\"]" }
+  ],
+  "network_candidates": [
+    {
+      "origin": "https://outlook.live.com",
+      "path_template": "/api/v2/messages/:id",
+      "methods": ["POST", "DELETE"],
+      "api_like": true,
+      "same_origin": true,
+      "count": 44
+    }
+  ],
+  "step": {
+    "type": "click",
+    "label_key": "delete_button",
+    "text": "Delete",
+    "role": "button"
+  },
+  "api_attempt": {
+    "method": "DELETE",
+    "path_template": "/api/v2/messages/:id"
+  },
+  "guardrail": {
+    "mutate": true,
+    "desiredAction": "delete",
+    "preferNetworkFirst": true,
+    "cleanupIntent": true,
+    "pilotApproved": true,
+    "requiredLabelKeys": ["select_row", "delete_button"],
+    "actionsCount": 1,
+    "apiAttemptsCount": 1
+  }
+}

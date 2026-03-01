@@ -18,7 +18,7 @@
 	}>();
 
 	const connectionCount = $derived(
-		edges.filter((e) => e.source === node.id || e.target === node.id).length
+		edges.filter((e: TopologyEdge) => e.source === node.id || e.target === node.id).length
 	);
 
 	const statusBadge = $derived(

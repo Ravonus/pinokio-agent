@@ -2,25 +2,26 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import zlib from 'node:zlib';
-import { pluginContext, respond, spawnChild, fail } from '../sdk/typescript/pinokio-sdk.mjs';
+import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.ts';
+import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
 
-const SUPPORTED_REQUEST_ACTIONS = new Set(['create', 'read', 'update', 'delete']);
-const MUTATION_ACTIONS = new Set(['create', 'update', 'delete']);
-const DEFAULT_SCOPE_DIR = process.env.PINOKIO_EXPLORER_SCOPE || '/app';
-const SCRIPTED_MUTATION_OPERATIONS = new Set([
+const SUPPORTED_REQUEST_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
+const MUTATION_ACTIONS: Set<string> = new Set(['create', 'update', 'delete']);
+const DEFAULT_SCOPE_DIR: string = process.env.PINOKIO_EXPLORER_SCOPE || '/app';
+const SCRIPTED_MUTATION_OPERATIONS: Set<string> = new Set([
   'delete_by_extension',
   'cleanup',
   'zip_files_over_size',
   'archive_large_files',
   'run_script'
 ]);
-const DEFAULT_CLEANUP_NAMES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini', '.localized']);
-const DEFAULT_CLEANUP_EXTENSIONS = new Set(['tmp', 'bak', 'old', 'log', 'dmp', 'rar']);
-const MAX_ZIP_SOURCE_BYTES = 512 * 1024 * 1024;
-const PACKAGE_STEP_TIMEOUT_MS = 600_000;
-const PACKAGE_LEDGER_VERSION = 1;
+const DEFAULT_CLEANUP_NAMES: Set<string> = new Set(['.ds_store', 'thumbs.db', 'desktop.ini', '.localized']);
+const DEFAULT_CLEANUP_EXTENSIONS: Set<string> = new Set(['tmp', 'bak', 'old', 'log', 'dmp', 'rar']);
+const MAX_ZIP_SOURCE_BYTES: number = 512 * 1024 * 1024;
+const PACKAGE_STEP_TIMEOUT_MS: number = 600_000;
+const PACKAGE_LEDGER_VERSION: number = 1;
 
-const CRC32_TABLE = (() => {
+const CRC32_TABLE: Uint32Array = (() => {
   const table = new Uint32Array(256);
   for (let i = 0; i < 256; i += 1) {
     let c = i;
@@ -36,11 +37,80 @@ const CRC32_TABLE = (() => {
   return table;
 })();
 
-function normalizeAction(value) {
+interface TargetMeta {
+  [key: string]: unknown;
+}
+
+interface HandoffMatch {
+  path: string;
+  name: string;
+  kind: string;
+  size: number | null;
+}
+
+interface MutationResult {
+  operation: string;
+  [key: string]: unknown;
+}
+
+interface ScriptStep {
+  op: string;
+  [key: string]: unknown;
+}
+
+interface ScriptDefinition {
+  steps: ScriptStep[];
+  stop_on_error: boolean;
+  require_handoff_matches: boolean;
+}
+
+interface TemplateContext {
+  scope_dir: string;
+  index: number;
+  match_index?: number;
+  match?: HandoffMatch | null;
+}
+
+interface PackagePlanStep {
+  command: string;
+  args: string[];
+}
+
+interface PackageCommandOutput {
+  command: string;
+  args: string[];
+  status: number;
+  output: string;
+}
+
+interface LedgerScopeData {
+  manager: string | null;
+  packages: string[];
+}
+
+interface PackageLedger {
+  version: number;
+  updated_at: string;
+  scopes: Record<string, LedgerScopeData>;
+  events: Record<string, unknown>[];
+}
+
+interface SocketHandoffResult {
+  targetMeta: TargetMeta;
+  handoff: {
+    channel: string | null;
+    sender_agent_id: string | null;
+    seq: number;
+    request_id: string | null;
+    message_count: number;
+  } | null;
+}
+
+function normalizeAction(value: unknown): string {
   return String(value || '').trim().toLowerCase();
 }
 
-function normalizeScriptOperation(value) {
+function normalizeScriptOperation(value: unknown): string {
   const operation = normalizeAction(value);
   if (operation === 'archive_large_files') {
     return 'zip_files_over_size';
@@ -51,12 +121,7 @@ function normalizeScriptOperation(value) {
   return operation;
 }
 
-function normalizeStage(value) {
-  const stage = String(value || '').trim().toLowerCase();
-  return stage || 'collect_socket';
-}
-
-function asOptionalString(value) {
+function asOptionalString(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;
   }
@@ -64,7 +129,7 @@ function asOptionalString(value) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function toPositiveInt(value) {
+function toPositiveInt(value: unknown): number | null {
   const parsed = Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(parsed) || parsed <= 0) {
     return null;
@@ -72,7 +137,7 @@ function toPositiveInt(value) {
   return parsed;
 }
 
-function normalizeExtensionToken(value) {
+function normalizeExtensionToken(value: unknown): string | null {
   const trimmed = String(value || '')
     .trim()
     .toLowerCase();
@@ -84,8 +149,8 @@ function normalizeExtensionToken(value) {
   return safe || null;
 }
 
-function parseExtensionList(targetMeta) {
-  const out = [];
+function parseExtensionList(targetMeta: TargetMeta): string[] {
+  const out: string[] = [];
   if (Array.isArray(targetMeta.extensions)) {
     for (const item of targetMeta.extensions) {
       const normalized = normalizeExtensionToken(item);
@@ -107,7 +172,7 @@ function parseExtensionList(targetMeta) {
   return Array.from(new Set(out));
 }
 
-function parseTargetMeta(target) {
+function parseTargetMeta(target: unknown): TargetMeta {
   if (typeof target !== 'string') {
     return {};
   }
@@ -121,7 +186,7 @@ function parseTargetMeta(target) {
   try {
     const parsed = JSON.parse(trimmed);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed;
+      return parsed as TargetMeta;
     }
   } catch {
     return { path: trimmed };
@@ -129,7 +194,7 @@ function parseTargetMeta(target) {
   return {};
 }
 
-function ensureDirectory(value, label) {
+function ensureDirectory(value: string, label: string): void {
   if (!fs.existsSync(value)) {
     fail(`${label} does not exist: ${value}`);
   }
@@ -139,7 +204,7 @@ function ensureDirectory(value, label) {
   }
 }
 
-function ensureInsideScope(scopeDir, candidate) {
+function ensureInsideScope(scopeDir: string, candidate: string): string {
   const scope = path.resolve(scopeDir);
   const resolved = path.resolve(candidate);
   if (resolved === scope) {
@@ -152,7 +217,7 @@ function ensureInsideScope(scopeDir, candidate) {
   return resolved;
 }
 
-function resolveInScope(scopeDir, value, fieldName) {
+function resolveInScope(scopeDir: string, value: unknown, fieldName: string): string {
   const input = asOptionalString(value);
   if (!input) {
     fail(`${fieldName} is required`);
@@ -163,7 +228,7 @@ function resolveInScope(scopeDir, value, fieldName) {
   return ensureInsideScope(scopeDir, path.join(scopeDir, input));
 }
 
-function inferCreateKind(pathValue, requestedKind) {
+function inferCreateKind(pathValue: string, requestedKind: unknown): string {
   const explicitKind = asOptionalString(requestedKind);
   if (explicitKind === 'file' || explicitKind === 'directory') {
     return explicitKind;
@@ -174,12 +239,12 @@ function inferCreateKind(pathValue, requestedKind) {
   return 'file';
 }
 
-function ensureParentDir(filePath) {
+function ensureParentDir(filePath: string): void {
   const parent = path.dirname(filePath);
   fs.mkdirSync(parent, { recursive: true });
 }
 
-function extensionFromName(name) {
+function extensionFromName(name: unknown): string {
   const value = String(name || '');
   const index = value.lastIndexOf('.');
   if (index <= 0 || index === value.length - 1) {
@@ -188,7 +253,7 @@ function extensionFromName(name) {
   return value.slice(index + 1).toLowerCase();
 }
 
-function chooseUpdateOperation(targetMeta) {
+function chooseUpdateOperation(targetMeta: TargetMeta): string {
   const op = normalizeAction(targetMeta.operation || '');
   if (op) {
     return op;
@@ -205,32 +270,53 @@ function chooseUpdateOperation(targetMeta) {
   return 'rename';
 }
 
-function extractSocketResultPayload(targetMeta) {
-  const direct =
-    targetMeta.__socket_result &&
-    typeof targetMeta.__socket_result === 'object' &&
-    !Array.isArray(targetMeta.__socket_result)
-      ? targetMeta.__socket_result
-      : null;
+function extractSocketResultPayload(targetMeta: TargetMeta): Record<string, unknown> | null {
+  const unwrap = (candidate: unknown): Record<string, unknown> | null => {
+    if (!candidate || typeof candidate !== 'object' || Array.isArray(candidate)) {
+      return null;
+    }
+    const direct = candidate as Record<string, unknown>;
+    if (Array.isArray(direct.messages)) {
+      return direct;
+    }
+    const nested = direct.data;
+    if (nested && typeof nested === 'object' && !Array.isArray(nested)) {
+      const nestedObj = nested as Record<string, unknown>;
+      if (Array.isArray(nestedObj.messages)) {
+        return nestedObj;
+      }
+    }
+    return null;
+  };
 
+  const direct = unwrap(targetMeta.__socket_result);
   if (direct) {
     return direct;
   }
 
   const all = Array.isArray(targetMeta.__socket_results) ? targetMeta.__socket_results : [];
-  for (const item of all) {
-    if (item && typeof item === 'object' && !Array.isArray(item)) {
-      return item;
+  for (let i = all.length - 1; i >= 0; i -= 1) {
+    const resolved = unwrap(all[i]);
+    if (resolved) {
+      return resolved;
     }
   }
 
   return null;
 }
 
-function applySocketHandoff(targetMeta, desiredAction) {
+function applySocketHandoff(targetMeta: TargetMeta, desiredAction: string): SocketHandoffResult {
   const socketResult = extractSocketResultPayload(targetMeta);
   if (!socketResult) {
-    fail('missing __socket_result payload after socket consume stage');
+    const requireMatches = targetMeta?.require_handoff_matches === true;
+    const hasFallbackMatches = Array.isArray(targetMeta?.handoff_matches);
+    if (requireMatches && !hasFallbackMatches) {
+      fail('missing socket consume payload (__socket_result/__socket_results) from explorer read handoff');
+    }
+    return {
+      targetMeta,
+      handoff: null
+    };
   }
 
   const messages = Array.isArray(socketResult.messages) ? socketResult.messages : [];
@@ -241,10 +327,10 @@ function applySocketHandoff(targetMeta, desiredAction) {
     );
   }
 
-  const envelope = messages[messages.length - 1];
+  const envelope = messages[messages.length - 1] as Record<string, unknown>;
   const payload =
     envelope && envelope.payload && typeof envelope.payload === 'object' && !Array.isArray(envelope.payload)
-      ? envelope.payload
+      ? envelope.payload as Record<string, unknown>
       : null;
   if (!payload) {
     fail('socket handoff payload is missing or malformed');
@@ -260,9 +346,9 @@ function applySocketHandoff(targetMeta, desiredAction) {
     );
   }
 
-  const options = payload.options && typeof payload.options === 'object' ? payload.options : {};
+  const options = payload.options && typeof payload.options === 'object' ? payload.options as Record<string, unknown> : {};
 
-  const merged = { ...targetMeta };
+  const merged: TargetMeta = { ...targetMeta };
   if (!asOptionalString(merged.scope_dir) && asOptionalString(payload.scope_dir)) {
     merged.scope_dir = payload.scope_dir;
   }
@@ -347,7 +433,7 @@ function applySocketHandoff(targetMeta, desiredAction) {
   };
 }
 
-function crc32(buffer) {
+function crc32(buffer: Buffer): number {
   let crc = 0xffffffff;
   for (let i = 0; i < buffer.length; i += 1) {
     crc = CRC32_TABLE[(crc ^ buffer[i]) & 0xff] ^ (crc >>> 8);
@@ -355,7 +441,12 @@ function crc32(buffer) {
   return (crc ^ 0xffffffff) >>> 0;
 }
 
-function toDosDateTime(date) {
+interface DosDateTime {
+  dosTime: number;
+  dosDate: number;
+}
+
+function toDosDateTime(date: Date | null): DosDateTime {
   const dt = date instanceof Date && !Number.isNaN(date.getTime()) ? date : new Date();
   const year = Math.max(1980, Math.min(2107, dt.getFullYear()));
   const month = dt.getMonth() + 1;
@@ -368,7 +459,7 @@ function toDosDateTime(date) {
   return { dosTime, dosDate };
 }
 
-function createSingleFileZipBuffer(entryName, content, modifiedAt) {
+function createSingleFileZipBuffer(entryName: string, content: Buffer, modifiedAt: Date): Buffer {
   const fileNameBuffer = Buffer.from(entryName.replace(/\\/g, '/'), 'utf8');
   const compressed = zlib.deflateRawSync(content, { level: 9 });
   const crc = crc32(content);
@@ -422,7 +513,7 @@ function createSingleFileZipBuffer(entryName, content, modifiedAt) {
   return Buffer.concat([localSection, centralDirectory, endOfCentral]);
 }
 
-function escapePdfText(value) {
+function escapePdfText(value: unknown): string {
   return String(value || '')
     .replace(/\\/g, '\\\\')
     .replace(/\(/g, '\\(')
@@ -430,13 +521,13 @@ function escapePdfText(value) {
     .replace(/\r/g, '');
 }
 
-function createPdfBufferFromText(text) {
+function createPdfBufferFromText(text: string): Buffer {
   const lines = String(text || '')
     .split(/\r?\n/)
     .slice(0, 200)
     .map((line) => escapePdfText(line));
   const nonEmpty = lines.length > 0 ? lines : [''];
-  const ops = ['BT', '/F1 12 Tf', '50 780 Td'];
+  const ops: string[] = ['BT', '/F1 12 Tf', '50 780 Td'];
   for (let i = 0; i < nonEmpty.length; i += 1) {
     ops.push(`(${nonEmpty[i]}) Tj`);
     if (i < nonEmpty.length - 1) {
@@ -447,7 +538,7 @@ function createPdfBufferFromText(text) {
   const streamData = `${ops.join('\n')}\n`;
   const streamLength = Buffer.byteLength(streamData, 'utf8');
 
-  const objects = {
+  const objects: Record<number, string> = {
     1: '<< /Type /Catalog /Pages 2 0 R >>',
     2: '<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
     3: '<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>',
@@ -455,8 +546,8 @@ function createPdfBufferFromText(text) {
     5: `<< /Length ${streamLength} >>\nstream\n${streamData}endstream`
   };
 
-  const chunks = [Buffer.from('%PDF-1.4\n', 'utf8')];
-  const offsets = [0];
+  const chunks: Buffer[] = [Buffer.from('%PDF-1.4\n', 'utf8')];
+  const offsets: number[] = [0];
   let cursor = chunks[0].length;
 
   for (let i = 1; i <= 5; i += 1) {
@@ -477,7 +568,7 @@ function createPdfBufferFromText(text) {
   return Buffer.concat(chunks);
 }
 
-function ensureUniquePath(candidatePath) {
+function ensureUniquePath(candidatePath: string): string {
   if (!fs.existsSync(candidatePath)) {
     return candidatePath;
   }
@@ -493,20 +584,24 @@ function ensureUniquePath(candidatePath) {
   fail(`could not allocate unique archive path for ${candidatePath}`);
 }
 
-function extractHandoffMatches(scopeDir, targetMeta, options = {}) {
+interface ExtractHandoffOptions {
+  required?: boolean;
+}
+
+function extractHandoffMatches(scopeDir: string, targetMeta: TargetMeta, options: ExtractHandoffOptions = {}): HandoffMatch[] {
   const rawMatches = Array.isArray(targetMeta.handoff_matches)
     ? targetMeta.handoff_matches
     : Array.isArray(targetMeta.matches)
       ? targetMeta.matches
       : [];
-  const out = [];
-  const seen = new Set();
+  const out: HandoffMatch[] = [];
+  const seen = new Set<string>();
 
   for (const item of rawMatches) {
     if (!item || typeof item !== 'object' || Array.isArray(item)) {
       continue;
     }
-    const rawPath = asOptionalString(item.path);
+    const rawPath = asOptionalString((item as Record<string, unknown>).path);
     if (!rawPath) {
       continue;
     }
@@ -517,7 +612,7 @@ function extractHandoffMatches(scopeDir, targetMeta, options = {}) {
     if (!fs.existsSync(fullPath)) {
       continue;
     }
-    let stat;
+    let stat: fs.Stats;
     try {
       stat = fs.statSync(fullPath);
     } catch {
@@ -526,7 +621,7 @@ function extractHandoffMatches(scopeDir, targetMeta, options = {}) {
     seen.add(fullPath);
     out.push({
       path: fullPath,
-      name: asOptionalString(item.name) || path.basename(fullPath),
+      name: asOptionalString((item as Record<string, unknown>).name) || path.basename(fullPath),
       kind: stat.isDirectory() ? 'directory' : 'file',
       size: stat.isFile() ? stat.size : null
     });
@@ -540,7 +635,7 @@ function extractHandoffMatches(scopeDir, targetMeta, options = {}) {
   return out;
 }
 
-function executeCreate(scopeDir, targetMeta, dryRun) {
+function executeCreate(scopeDir: string, targetMeta: TargetMeta, dryRun: boolean): MutationResult {
   const rawPath = asOptionalString(targetMeta.resolved_path || targetMeta.path);
   if (!rawPath) {
     fail('create requires resolved_path or path');
@@ -623,20 +718,20 @@ function executeCreate(scopeDir, targetMeta, dryRun) {
   };
 }
 
-function executeDeleteByExtension(scopeDir, targetMeta, dryRun) {
+function executeDeleteByExtension(scopeDir: string, targetMeta: TargetMeta, dryRun: boolean): MutationResult {
   const extensions = parseExtensionList(targetMeta);
   if (extensions.length === 0) {
     fail('delete_by_extension requires target.extensions');
   }
   const extensionSet = new Set(extensions);
   const handoffMatches = extractHandoffMatches(scopeDir, targetMeta);
-  const candidates = handoffMatches.filter((item) => item.kind === 'file' && extensionSet.has(normalizeExtensionToken(extensionFromName(item.name))));
+  const candidates = handoffMatches.filter((item) => item.kind === 'file' && extensionSet.has(normalizeExtensionToken(extensionFromName(item.name)) as string));
 
   if (candidates.length === 0) {
     fail(`delete_by_extension found no matching files for extensions: ${extensions.join(', ')}`);
   }
 
-  const scriptLines = [];
+  const scriptLines: string[] = [];
   for (const item of candidates) {
     scriptLines.push(`rm -f ${JSON.stringify(item.path)}`);
     if (!dryRun) {
@@ -654,7 +749,7 @@ function executeDeleteByExtension(scopeDir, targetMeta, dryRun) {
   };
 }
 
-function executeCleanup(scopeDir, targetMeta, dryRun) {
+function executeCleanup(scopeDir: string, targetMeta: TargetMeta, dryRun: boolean): MutationResult {
   const cleanupProfile = asOptionalString(targetMeta.cleanup_profile) || 'default';
   const requestedExt = parseExtensionList(targetMeta);
   const cleanupExt = new Set([...DEFAULT_CLEANUP_EXTENSIONS, ...requestedExt]);
@@ -675,7 +770,7 @@ function executeCleanup(scopeDir, targetMeta, dryRun) {
     fail(`cleanup(${cleanupProfile}) found no candidate files in ${scopeDir}`);
   }
 
-  const scriptLines = [];
+  const scriptLines: string[] = [];
   for (const item of candidates) {
     scriptLines.push(`rm -f ${JSON.stringify(item.path)}`);
     if (!dryRun) {
@@ -693,7 +788,7 @@ function executeCleanup(scopeDir, targetMeta, dryRun) {
   };
 }
 
-function resolveArchiveDir(scopeDir, sourcePath, targetMeta) {
+function resolveArchiveDir(scopeDir: string, sourcePath: string, targetMeta: TargetMeta): string {
   const requested = asOptionalString(targetMeta.archive_destination);
   if (!requested) {
     return path.dirname(sourcePath);
@@ -708,11 +803,13 @@ function resolveArchiveDir(scopeDir, sourcePath, targetMeta) {
   return resolved;
 }
 
-function executeZipFilesOverSize(scopeDir, targetMeta, dryRun) {
-  const minSizeBytes =
-    toPositiveInt(targetMeta.min_size_bytes) ||
-    (targetMeta.script_plan && toPositiveInt(targetMeta.script_plan.min_size_bytes));
-  if (!minSizeBytes) {
+function executeZipFilesOverSize(scopeDir: string, targetMeta: TargetMeta, dryRun: boolean): MutationResult {
+  const scriptPlan =
+    targetMeta.script_plan && typeof targetMeta.script_plan === 'object' && !Array.isArray(targetMeta.script_plan)
+      ? (targetMeta.script_plan as Record<string, unknown>)
+      : null;
+  const minSizeBytes = toPositiveInt(targetMeta.min_size_bytes) ?? (scriptPlan ? toPositiveInt(scriptPlan.min_size_bytes) : null);
+  if (minSizeBytes === null) {
     fail('zip_files_over_size requires target.min_size_bytes');
   }
 
@@ -725,8 +822,8 @@ function executeZipFilesOverSize(scopeDir, targetMeta, dryRun) {
     fail(`zip_files_over_size found no files >= ${minSizeBytes} bytes`);
   }
 
-  const archives = [];
-  const scriptLines = [];
+  const archives: Record<string, unknown>[] = [];
+  const scriptLines: string[] = [];
 
   for (const item of candidates) {
     const sourcePath = ensureInsideScope(scopeDir, item.path);
@@ -746,7 +843,7 @@ function executeZipFilesOverSize(scopeDir, targetMeta, dryRun) {
 
     scriptLines.push(`zip ${JSON.stringify(destinationPath)} ${JSON.stringify(sourcePath)}`);
 
-    let zipBytes = null;
+    let zipBytes: number | null = null;
     if (!dryRun) {
       const sourceBuffer = fs.readFileSync(sourcePath);
       const zipBuffer = createSingleFileZipBuffer(baseName, sourceBuffer, sourceStat.mtime);
@@ -778,7 +875,7 @@ function executeZipFilesOverSize(scopeDir, targetMeta, dryRun) {
   };
 }
 
-function normalizeScriptStepOperation(value) {
+function normalizeScriptStepOperation(value: unknown): string {
   const op = normalizeAction(value);
   if (!op) {
     return '';
@@ -813,23 +910,23 @@ function normalizeScriptStepOperation(value) {
   return op;
 }
 
-function parseScriptDefinition(targetMeta) {
-  let script = null;
+function parseScriptDefinition(targetMeta: TargetMeta): ScriptDefinition {
+  let script: Record<string, unknown> | null = null;
   if (Array.isArray(targetMeta.script)) {
     script = { steps: targetMeta.script };
   } else if (targetMeta.script && typeof targetMeta.script === 'object' && !Array.isArray(targetMeta.script)) {
-    script = targetMeta.script;
+    script = targetMeta.script as Record<string, unknown>;
   } else if (
     targetMeta.script_plan &&
     typeof targetMeta.script_plan === 'object' &&
     !Array.isArray(targetMeta.script_plan) &&
-    targetMeta.script_plan.script &&
-    typeof targetMeta.script_plan.script === 'object' &&
-    !Array.isArray(targetMeta.script_plan.script)
+    (targetMeta.script_plan as Record<string, unknown>).script &&
+    typeof (targetMeta.script_plan as Record<string, unknown>).script === 'object' &&
+    !Array.isArray((targetMeta.script_plan as Record<string, unknown>).script)
   ) {
-    script = targetMeta.script_plan.script;
+    script = (targetMeta.script_plan as Record<string, unknown>).script as Record<string, unknown>;
   } else if (typeof targetMeta.script === 'string') {
-    const trimmed = targetMeta.script.trim();
+    const trimmed = (targetMeta.script as string).trim();
     if (trimmed) {
       try {
         const parsed = JSON.parse(trimmed);
@@ -860,16 +957,17 @@ function parseScriptDefinition(targetMeta) {
     fail('run_script supports at most 200 steps');
   }
 
-  const steps = rawSteps.map((step, index) => {
+  const steps: ScriptStep[] = rawSteps.map((step: unknown, index: number) => {
     if (!step || typeof step !== 'object' || Array.isArray(step)) {
       fail(`run_script step #${index + 1} must be an object`);
     }
-    const op = normalizeScriptStepOperation(step.op || step.operation);
+    const stepObj = step as Record<string, unknown>;
+    const op = normalizeScriptStepOperation(stepObj.op || stepObj.operation);
     if (!op) {
       fail(`run_script step #${index + 1} requires op`);
     }
     return {
-      ...step,
+      ...stepObj,
       op
     };
   });
@@ -878,7 +976,7 @@ function parseScriptDefinition(targetMeta) {
     typeof script.require_handoff_matches === 'boolean'
       ? script.require_handoff_matches
       : typeof targetMeta.require_handoff_matches === 'boolean'
-        ? targetMeta.require_handoff_matches
+        ? targetMeta.require_handoff_matches as boolean
         : true;
 
   return {
@@ -888,11 +986,11 @@ function parseScriptDefinition(targetMeta) {
   };
 }
 
-function resolveTemplateString(value, context) {
+function resolveTemplateString(value: unknown, context: TemplateContext): unknown {
   if (typeof value !== 'string') {
     return value;
   }
-  return value.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_match, token) => {
+  return value.replace(/\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}/g, (_match: string, token: string) => {
     const key = String(token || '').trim().toLowerCase();
     if (key === 'scope_dir') {
       return String(context.scope_dir || '');
@@ -922,7 +1020,7 @@ function resolveTemplateString(value, context) {
   });
 }
 
-function resolveScriptPath(scopeDir, rawValue, fieldName, context) {
+function resolveScriptPath(scopeDir: string, rawValue: unknown, fieldName: string, context: TemplateContext): string {
   const templateValue = resolveTemplateString(rawValue, context);
   const input = asOptionalString(templateValue);
   if (!input) {
@@ -934,7 +1032,7 @@ function resolveScriptPath(scopeDir, rawValue, fieldName, context) {
   return ensureInsideScope(scopeDir, path.join(scopeDir, input));
 }
 
-function resolveScriptString(rawValue, fieldName, context, allowEmpty = false) {
+function resolveScriptString(rawValue: unknown, fieldName: string, context: TemplateContext, allowEmpty: boolean = false): string {
   const templateValue = resolveTemplateString(rawValue, context);
   const value = typeof templateValue === 'string' ? templateValue : String(templateValue ?? '');
   if (!allowEmpty && !value.trim()) {
@@ -943,7 +1041,7 @@ function resolveScriptString(rawValue, fieldName, context, allowEmpty = false) {
   return value;
 }
 
-function filterMatches(matches, selector) {
+function filterMatches(matches: HandoffMatch[], selector: unknown): HandoffMatch[] {
   const mode = normalizeAction(selector || 'all');
   if (mode === 'file' || mode === 'files') {
     return matches.filter((item) => item.kind === 'file');
@@ -954,14 +1052,14 @@ function filterMatches(matches, selector) {
   return matches;
 }
 
-function isTruthy(value) {
+function isTruthy(value: unknown): boolean {
   const normalized = String(value || '')
     .trim()
     .toLowerCase();
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 }
 
-function assertContainerPackageInstallsEnabled(stepOp) {
+function assertContainerPackageInstallsEnabled(stepOp: string): void {
   if (isTruthy(process.env.PINOKIO_CONTAINER_PACKAGE_INSTALLS_ENABLED)) {
     return;
   }
@@ -970,7 +1068,7 @@ function assertContainerPackageInstallsEnabled(stepOp) {
   );
 }
 
-function sanitizePackageName(value) {
+function sanitizePackageName(value: unknown): string | null {
   const raw = String(value || '').trim();
   if (!raw) {
     return null;
@@ -981,9 +1079,9 @@ function sanitizePackageName(value) {
   return raw;
 }
 
-function parsePackageList(rawValue, context) {
+function parsePackageList(rawValue: unknown, context: TemplateContext): string[] {
   const resolved = resolveTemplateString(rawValue, context);
-  const items = [];
+  const items: string[] = [];
   if (Array.isArray(resolved)) {
     for (const value of resolved) {
       const token = sanitizePackageName(resolveTemplateString(value, context));
@@ -1012,12 +1110,12 @@ function parsePackageList(rawValue, context) {
   return deduped;
 }
 
-function commandAvailable(command) {
+function commandAvailable(command: string): boolean {
   const probe = spawnSync('which', [command], { encoding: 'utf8' });
   return probe.status === 0;
 }
 
-function detectPackageManager(preferred) {
+function detectPackageManager(preferred: unknown): string {
   const normalizedPreferred = asOptionalString(preferred)?.toLowerCase() || null;
   const supported = ['apt-get', 'apk', 'dnf', 'yum'];
   const candidates = normalizedPreferred
@@ -1038,9 +1136,9 @@ function detectPackageManager(preferred) {
   );
 }
 
-function packageInstallPlan(manager, packages, updateIndex) {
+function packageInstallPlan(manager: string, packages: string[], updateIndex: unknown): PackagePlanStep[] {
   if (manager === 'apt-get') {
-    const plan = [];
+    const plan: PackagePlanStep[] = [];
     if (updateIndex !== false) {
       plan.push({ command: 'apt-get', args: ['update'] });
     }
@@ -1059,9 +1157,9 @@ function packageInstallPlan(manager, packages, updateIndex) {
   fail(`unsupported package manager '${manager}'`);
 }
 
-function packageRemovePlan(manager, packages, autoremove) {
+function packageRemovePlan(manager: string, packages: string[], autoremove: unknown): PackagePlanStep[] {
   if (manager === 'apt-get') {
-    const plan = [{ command: 'apt-get', args: ['remove', '-y', ...packages] }];
+    const plan: PackagePlanStep[] = [{ command: 'apt-get', args: ['remove', '-y', ...packages] }];
     if (autoremove) {
       plan.push({ command: 'apt-get', args: ['autoremove', '-y'] });
     }
@@ -1079,12 +1177,12 @@ function packageRemovePlan(manager, packages, autoremove) {
   fail(`unsupported package manager '${manager}'`);
 }
 
-function shellLineForCommand(command, args) {
+function shellLineForCommand(command: string, args: string[]): string {
   return [command, ...args.map((arg) => JSON.stringify(arg))].join(' ');
 }
 
-function runPackagePlan(plan, dryRun) {
-  const outputs = [];
+function runPackagePlan(plan: PackagePlanStep[], dryRun: boolean): PackageCommandOutput[] {
+  const outputs: PackageCommandOutput[] = [];
   if (dryRun) {
     return outputs;
   }
@@ -1099,7 +1197,7 @@ function runPackagePlan(plan, dryRun) {
       }
     });
     if (out.error) {
-      if (out.error.code === 'ETIMEDOUT') {
+      if ((out.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
         fail(
           `package command timed out after ${PACKAGE_STEP_TIMEOUT_MS}ms: ${shellLineForCommand(
             step.command,
@@ -1127,18 +1225,19 @@ function runPackagePlan(plan, dryRun) {
   return outputs;
 }
 
-function resolvePackageLedgerPath() {
+function resolvePackageLedgerPath(): string {
   return asOptionalString(process.env.PINOKIO_PACKAGE_LEDGER_PATH) || '/app/.pka/package-ledger.json';
 }
 
-function normalizeLedgerScopeData(raw) {
+function normalizeLedgerScopeData(raw: unknown): LedgerScopeData {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     return { manager: null, packages: [] };
   }
-  const manager = asOptionalString(raw.manager);
-  const packages = [];
-  if (Array.isArray(raw.packages)) {
-    for (const value of raw.packages) {
+  const rawObj = raw as Record<string, unknown>;
+  const manager = asOptionalString(rawObj.manager);
+  const packages: string[] = [];
+  if (Array.isArray(rawObj.packages)) {
+    for (const value of rawObj.packages) {
       if (typeof value !== 'string') {
         continue;
       }
@@ -1157,8 +1256,8 @@ function normalizeLedgerScopeData(raw) {
   };
 }
 
-function loadPackageLedger(ledgerPath) {
-  const empty = {
+function loadPackageLedger(ledgerPath: string): PackageLedger {
+  const empty: PackageLedger = {
     version: PACKAGE_LEDGER_VERSION,
     updated_at: new Date().toISOString(),
     scopes: {},
@@ -1172,14 +1271,14 @@ function loadPackageLedger(ledgerPath) {
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
       return empty;
     }
-    const scopes = {};
+    const scopes: Record<string, LedgerScopeData> = {};
     if (parsed.scopes && typeof parsed.scopes === 'object' && !Array.isArray(parsed.scopes)) {
       for (const [key, value] of Object.entries(parsed.scopes)) {
         scopes[key] = normalizeLedgerScopeData(value);
       }
     }
-    const events = Array.isArray(parsed.events)
-      ? parsed.events.filter((entry) => entry && typeof entry === 'object' && !Array.isArray(entry)).slice(-5000)
+    const events: Record<string, unknown>[] = Array.isArray(parsed.events)
+      ? parsed.events.filter((entry: unknown) => entry && typeof entry === 'object' && !Array.isArray(entry)).slice(-5000) as Record<string, unknown>[]
       : [];
     return {
       version: PACKAGE_LEDGER_VERSION,
@@ -1192,7 +1291,7 @@ function loadPackageLedger(ledgerPath) {
   }
 }
 
-function savePackageLedger(ledgerPath, ledger) {
+function savePackageLedger(ledgerPath: string, ledger: PackageLedger): void {
   ensureParentDir(ledgerPath);
   fs.writeFileSync(
     ledgerPath,
@@ -1210,13 +1309,20 @@ function savePackageLedger(ledgerPath, ledger) {
   );
 }
 
-function ledgerScopeKey(scopeDir) {
+function ledgerScopeKey(scopeDir: string): string {
   const resource = asOptionalString(process.env.PINOKIO_SOCKET_RESOURCE) || 'unknown_resource';
   const agentId = asOptionalString(process.env.PINOKIO_SOCKET_AGENT_ID) || 'unknown_agent';
   return `${resource}::${agentId}::${scopeDir}`;
 }
 
-function updatePackageLedger(scopeDir, manager, packages, action, dryRun) {
+interface LedgerUpdateResult {
+  ledger_path: string;
+  scope_key: string;
+  recorded: boolean;
+  installed_packages?: string[];
+}
+
+function updatePackageLedger(scopeDir: string, manager: string, packages: string[], action: string, dryRun: boolean): LedgerUpdateResult {
   const ledgerPath = resolvePackageLedgerPath();
   const scopeKey = ledgerScopeKey(scopeDir);
   if (dryRun) {
@@ -1230,7 +1336,7 @@ function updatePackageLedger(scopeDir, manager, packages, action, dryRun) {
   const ledger = loadPackageLedger(ledgerPath);
   const existing = normalizeLedgerScopeData(ledger.scopes[scopeKey]);
   const currentPackages = new Set(existing.packages);
-  const normalizedPackages = packages.map((value) => sanitizePackageName(value)).filter(Boolean);
+  const normalizedPackages = packages.map((value) => sanitizePackageName(value)).filter(Boolean) as string[];
 
   if (action === 'install') {
     for (const pkg of normalizedPackages) {
@@ -1268,7 +1374,14 @@ function updatePackageLedger(scopeDir, manager, packages, action, dryRun) {
   };
 }
 
-function readScopePackagesFromLedger(scopeDir) {
+interface ScopePackagesFromLedger {
+  ledger_path: string;
+  scope_key: string;
+  manager: string | null;
+  packages: string[];
+}
+
+function readScopePackagesFromLedger(scopeDir: string): ScopePackagesFromLedger {
   const ledgerPath = resolvePackageLedgerPath();
   const scopeKey = ledgerScopeKey(scopeDir);
   const ledger = loadPackageLedger(ledgerPath);
@@ -1281,7 +1394,7 @@ function readScopePackagesFromLedger(scopeDir) {
   };
 }
 
-function executeEnsurePackagesStep(scopeDir, step, context, dryRun) {
+function executeEnsurePackagesStep(scopeDir: string, step: ScriptStep, context: TemplateContext, dryRun: boolean): MutationResult {
   assertContainerPackageInstallsEnabled('ensure_packages');
   const packages = parsePackageList(step.packages ?? step.package ?? step.names, context);
   const manager = detectPackageManager(resolveTemplateString(step.package_manager ?? step.manager, context));
@@ -1300,7 +1413,7 @@ function executeEnsurePackagesStep(scopeDir, step, context, dryRun) {
   };
 }
 
-function executeRemovePackagesStep(scopeDir, step, context, dryRun) {
+function executeRemovePackagesStep(scopeDir: string, step: ScriptStep, context: TemplateContext, dryRun: boolean): MutationResult {
   assertContainerPackageInstallsEnabled('remove_packages');
   const packages = parsePackageList(step.packages ?? step.package ?? step.names, context);
   const manager = detectPackageManager(resolveTemplateString(step.package_manager ?? step.manager, context));
@@ -1319,7 +1432,7 @@ function executeRemovePackagesStep(scopeDir, step, context, dryRun) {
   };
 }
 
-function executeRestorePackagesStep(scopeDir, step, context, dryRun) {
+function executeRestorePackagesStep(scopeDir: string, step: ScriptStep, context: TemplateContext, dryRun: boolean): MutationResult {
   assertContainerPackageInstallsEnabled('restore_packages');
   const fromLedger = readScopePackagesFromLedger(scopeDir);
   if (!Array.isArray(fromLedger.packages) || fromLedger.packages.length === 0) {
@@ -1346,7 +1459,7 @@ function executeRestorePackagesStep(scopeDir, step, context, dryRun) {
   };
 }
 
-function executeRunScriptStep(scopeDir, step, context, dryRun) {
+function executeRunScriptStep(scopeDir: string, step: ScriptStep, context: TemplateContext, dryRun: boolean): MutationResult {
   const op = normalizeScriptStepOperation(step.op || step.operation);
 
   if (op === 'mkdir') {
@@ -1595,13 +1708,13 @@ function executeRunScriptStep(scopeDir, step, context, dryRun) {
   fail(`unsupported run_script step op '${op}'`);
 }
 
-function executeRunScript(scopeDir, targetMeta, dryRun) {
+function executeRunScript(scopeDir: string, targetMeta: TargetMeta, dryRun: boolean): MutationResult {
   const definition = parseScriptDefinition(targetMeta);
   const handoffMatches = extractHandoffMatches(scopeDir, targetMeta, {
     required: definition.require_handoff_matches
   });
-  const stepResults = [];
-  const scriptLines = [];
+  const stepResults: Record<string, unknown>[] = [];
+  const scriptLines: string[] = [];
 
   for (let stepIndex = 0; stepIndex < definition.steps.length; stepIndex += 1) {
     const step = definition.steps[stepIndex];
@@ -1617,7 +1730,7 @@ function executeRunScript(scopeDir, targetMeta, dryRun) {
 
     for (let matchIndex = 0; matchIndex < selectedMatches.length; matchIndex += 1) {
       const match = selectedMatches[matchIndex];
-      const context = {
+      const context: TemplateContext = {
         scope_dir: scopeDir,
         index: stepIndex,
         match_index: matchIndex,
@@ -1631,8 +1744,8 @@ function executeRunScript(scopeDir, targetMeta, dryRun) {
           match_path: match ? match.path : null,
           ...result
         });
-        if (typeof result.script === 'string' && result.script.trim()) {
-          scriptLines.push(result.script);
+        if (typeof result.script === 'string' && (result.script as string).trim()) {
+          scriptLines.push(result.script as string);
         }
       } catch (error) {
         if (!definition.stop_on_error) {
@@ -1663,7 +1776,7 @@ function executeRunScript(scopeDir, targetMeta, dryRun) {
   };
 }
 
-function executeScriptedOperation(scopeDir, targetMeta, dryRun) {
+function executeScriptedOperation(scopeDir: string, targetMeta: TargetMeta, dryRun: boolean): MutationResult {
   const operation = normalizeScriptOperation(targetMeta.operation || '');
 
   if (operation === 'delete_by_extension') {
@@ -1682,7 +1795,7 @@ function executeScriptedOperation(scopeDir, targetMeta, dryRun) {
   fail(`unsupported scripted explorer operation '${operation}'`);
 }
 
-function executeUpdate(scopeDir, targetMeta, dryRun) {
+function executeUpdate(scopeDir: string, targetMeta: TargetMeta, dryRun: boolean): MutationResult {
   const operation = normalizeScriptOperation(chooseUpdateOperation(targetMeta));
   if (SCRIPTED_MUTATION_OPERATIONS.has(operation)) {
     return executeScriptedOperation(scopeDir, { ...targetMeta, operation }, dryRun);
@@ -1797,7 +1910,7 @@ function executeUpdate(scopeDir, targetMeta, dryRun) {
   );
 }
 
-function executeDelete(scopeDir, targetMeta, dryRun) {
+function executeDelete(scopeDir: string, targetMeta: TargetMeta, dryRun: boolean): MutationResult {
   const operation = normalizeScriptOperation(targetMeta.operation || '');
   if (SCRIPTED_MUTATION_OPERATIONS.has(operation)) {
     return executeScriptedOperation(scopeDir, { ...targetMeta, operation }, dryRun);
@@ -1837,14 +1950,20 @@ function executeDelete(scopeDir, targetMeta, dryRun) {
   };
 }
 
-function executeMutation(action, targetMeta) {
+interface ExecuteMutationResult {
+  scopeDir: string;
+  dryRun: boolean;
+  result: MutationResult;
+}
+
+function executeMutation(action: string, targetMeta: TargetMeta): ExecuteMutationResult {
   const scopeDir = path.resolve(asOptionalString(targetMeta.scope_dir) || DEFAULT_SCOPE_DIR);
   ensureDirectory(scopeDir, 'scope_dir');
 
   const dryRun = targetMeta.dry_run === true;
   const scriptedOperation = normalizeScriptOperation(targetMeta.operation || '');
 
-  let result;
+  let result: MutationResult;
   if (SCRIPTED_MUTATION_OPERATIONS.has(scriptedOperation)) {
     result = executeScriptedOperation(scopeDir, { ...targetMeta, operation: scriptedOperation }, dryRun);
   } else if (action === 'create') {
@@ -1873,53 +1992,9 @@ try {
     );
   }
 
-  const stage = normalizeStage(targetMeta.stage);
-
-  if (stage !== 'apply_socket') {
-    const channel = asOptionalString(targetMeta.socket_channel);
-    if (!channel) {
-      fail('explorer_write_agent requires socket_channel handoff from explorer_read_agent');
-    }
-
-    const childTarget = {
-      ...targetMeta,
-      stage: 'apply_socket'
-    };
-    delete childTarget.__socket_result;
-    delete childTarget.__socket_results;
-
-    spawnChild(
-      {
-        summary: request.summary || `explorer write apply (${action})`,
-        resource: 'plugin:explorer_write_agent',
-        action: 'read',
-        target: JSON.stringify(childTarget),
-        container_image:
-          typeof request.container_image === 'string' && request.container_image.trim()
-            ? request.container_image.trim()
-            : null,
-        container_network:
-          typeof request.container_network === 'string' && request.container_network.trim()
-            ? request.container_network.trim()
-            : null,
-        llm_profile:
-          typeof request.llm_profile === 'string' && request.llm_profile.trim()
-            ? request.llm_profile.trim()
-            : null
-      },
-      {
-        ok: true,
-        plugin: 'explorer_write_agent',
-        mode: 'socket_consume_then_apply',
-        socket_request: {
-          op: 'consume',
-          channel,
-          max_messages: 1,
-          sender_filter: asOptionalString(targetMeta.socket_sender_filter)
-        }
-      }
-    );
-    process.exit(0);
+  const channel = asOptionalString(targetMeta.socket_channel);
+  if (!channel) {
+    fail('explorer_write_agent requires socket_channel handoff from explorer_read_agent');
   }
 
   const socketApplied = applySocketHandoff(targetMeta, action);

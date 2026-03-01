@@ -50,7 +50,7 @@
 	const coreRoutes = new Set(coreItems.map(i => i.href));
 
 	const filteredExtensions = $derived(
-		navigationExtensions.filter(ext => !coreRoutes.has(ext.route))
+		navigationExtensions.filter((ext: NavigationExtension) => !coreRoutes.has(ext.route))
 	);
 
 	function isActive(item: NavItem): boolean {

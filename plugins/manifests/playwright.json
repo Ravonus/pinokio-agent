@@ -1,0 +1,226 @@
+{
+  "api_version": "pinokio.plugin/v1",
+  "id": "pinokio.playwright",
+  "name": "Playwright Browser Automation",
+  "version": "1.0.0",
+  "description": "Split read/write browser automation with discovery mode, anti-bot handling, optional unsafe browser runtime, and skill-guided action planning.",
+  "readme": "../readmes/playwright.md",
+  "runtime": {
+    "mode": "container",
+    "requires_container": true,
+    "unsafe_host_access": true
+  },
+  "extends": {
+    "agents": [
+      "playwright_agent",
+      "playwright_read_agent",
+      "playwright_write_agent",
+      "playwright_unsafe_agent"
+    ],
+    "containers": [
+      "playwright-runtime"
+    ],
+    "navigation": [],
+    "settings": [
+      "playwright"
+    ],
+    "pages": [],
+    "resources": [
+      "plugin:playwright_agent",
+      "plugin:playwright_read_agent",
+      "plugin:playwright_write_agent",
+      "plugin:playwright_unsafe_agent"
+    ],
+    "hooks": []
+  },
+  "plugins": [
+    {
+      "name": "playwright_agent",
+      "command": "node plugins/playwright-agent-plugin.ts",
+      "host_only": false,
+      "allowed_actions": [
+        "create",
+        "read",
+        "update",
+        "delete"
+      ],
+      "managed_only": true,
+      "dependencies": [
+        "plugin:playwright_read_agent",
+        "plugin:playwright_write_agent",
+        "plugin:playwright_unsafe_agent"
+      ],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": true,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": true,
+        "read": true,
+        "update": true,
+        "delete": true,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": true,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": false,
+        "playwright": true
+      }
+    },
+    {
+      "name": "playwright_read_agent",
+      "command": "node plugins/playwright-read-agent-plugin.ts",
+      "host_only": false,
+      "allowed_actions": [
+        "read"
+      ],
+      "managed_only": true,
+      "dependencies": [
+        "plugin:playwright_write_agent"
+      ],
+      "capabilities": {
+        "allow_spawn_child": true,
+        "allow_hook_requests": false,
+        "allow_network": true,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": false,
+        "read": true,
+        "update": false,
+        "delete": false,
+        "spawn_child": true,
+        "hook_extensions": false,
+        "network": true,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": false,
+        "playwright": true
+      }
+    },
+    {
+      "name": "playwright_write_agent",
+      "command": "node plugins/playwright-write-agent-plugin.ts",
+      "host_only": false,
+      "allowed_actions": [
+        "create",
+        "read",
+        "update",
+        "delete"
+      ],
+      "managed_only": true,
+      "dependencies": [],
+      "capabilities": {
+        "allow_spawn_child": false,
+        "allow_hook_requests": false,
+        "allow_network": true,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": true,
+        "read": true,
+        "update": true,
+        "delete": true,
+        "spawn_child": false,
+        "hook_extensions": false,
+        "network": true,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": false,
+        "memory_read": false,
+        "memory_write": false,
+        "playwright": true
+      }
+    },
+    {
+      "name": "playwright_unsafe_agent",
+      "command": "node plugins/playwright-unsafe-agent-plugin.ts",
+      "host_only": true,
+      "allowed_actions": [
+        "create",
+        "read",
+        "update",
+        "delete"
+      ],
+      "managed_only": true,
+      "dependencies": [],
+      "capabilities": {
+        "allow_spawn_child": false,
+        "allow_hook_requests": false,
+        "allow_network": true,
+        "allow_filesystem": false
+      },
+      "permissions": {
+        "create": true,
+        "read": true,
+        "update": true,
+        "delete": true,
+        "spawn_child": false,
+        "hook_extensions": false,
+        "network": true,
+        "filesystem_read": false,
+        "filesystem_write": false,
+        "exec": true,
+        "memory_read": false,
+        "memory_write": false,
+        "playwright": true
+      }
+    }
+  ],
+  "skills": [
+    {
+      "name": "playwright.discovery_split",
+      "description": "Browser discovery-first planning with strict read->write separation for web automations.",
+      "path": "plugins/skills/playwright/discovery-split.md",
+      "targets": {
+        "plugins": [
+          "playwright_agent",
+          "playwright_read_agent",
+          "playwright_write_agent"
+        ],
+        "resources": [
+          "plugin:playwright_agent",
+          "plugin:playwright_read_agent",
+          "plugin:playwright_write_agent"
+        ],
+        "actions": [
+          "create",
+          "read",
+          "update",
+          "delete"
+        ]
+      },
+      "tags": [
+        "browser",
+        "automation",
+        "playwright",
+        "safety"
+      ],
+      "enabled": true
+    }
+  ],
+  "install": {
+    "summary": "Install Playwright browser automation dependencies and optional stealth helpers.",
+    "commands": [
+      {
+        "id": "playwright_base",
+        "scope": "host",
+        "command": "npm install --no-audit --no-fund --silent playwright",
+        "description": "Install Playwright runtime dependency."
+      },
+      {
+        "id": "playwright_stealth_optional",
+        "scope": "host",
+        "command": "npm install --no-audit --no-fund --silent playwright-extra playwright-extra-plugin-stealth",
+        "description": "Install optional stealth plugins used when available."
+      }
+    ]
+  }
+}

@@ -1,6 +1,7 @@
-import { pluginContext, spawnChild, fail } from '../sdk/typescript/pinokio-sdk.mjs';
+import { pluginContext, spawnChild, fail } from '../sdk/typescript/pinokio-sdk.ts';
+import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
 
-const ROLE_ACTIONS = {
+const ROLE_ACTIONS: Record<string, Set<string>> = {
 	read: new Set(['read']),
 	write: new Set(['create', 'update', 'delete']),
 	create: new Set(['create']),
@@ -9,7 +10,7 @@ const ROLE_ACTIONS = {
 	all: new Set(['create', 'read', 'update', 'delete'])
 };
 
-const RESERVED_RESOURCES = new Set([
+const RESERVED_RESOURCES: Set<string> = new Set([
 	'plugin:db_router_agent',
 	'plugin:db_read_agent',
 	'plugin:db_write_agent',
@@ -18,24 +19,24 @@ const RESERVED_RESOURCES = new Set([
 	'plugin:db_delete_agent'
 ]);
 
-function normalizeAction(value) {
+function normalizeAction(value: unknown): string {
 	return String(value || '')
 		.trim()
 		.toLowerCase();
 }
 
-function parseObjectJson(raw) {
+function parseObjectJson(raw: unknown): Record<string, unknown> | null {
 	if (typeof raw !== 'string') {
 		return null;
 	}
-	const trimmed = raw.trim();
+	const trimmed: string = raw.trim();
 	if (!trimmed.startsWith('{')) {
 		return null;
 	}
 	try {
-		const parsed = JSON.parse(trimmed);
+		const parsed: unknown = JSON.parse(trimmed);
 		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			return parsed;
+			return parsed as Record<string, unknown>;
 		}
 	} catch {
 		return null;
@@ -43,16 +44,16 @@ function parseObjectJson(raw) {
 	return null;
 }
 
-function parseTargetMeta(target) {
+function parseTargetMeta(target: unknown): Record<string, unknown> {
 	if (typeof target !== 'string') {
 		return {};
 	}
-	const parsed = parseObjectJson(target);
+	const parsed: Record<string, unknown> | null = parseObjectJson(target);
 	return parsed ?? {};
 }
 
-function normalizeRole(value) {
-	const role = String(value || '')
+function normalizeRole(value: unknown): string {
+	const role: string = String(value || '')
 		.trim()
 		.toLowerCase();
 	if (!ROLE_ACTIONS[role]) {
@@ -61,14 +62,14 @@ function normalizeRole(value) {
 	return role;
 }
 
-function ensureActionAllowed(role, action) {
+function ensureActionAllowed(role: string, action: string): void {
 	if (!ROLE_ACTIONS[role].has(action)) {
 		fail(`db role '${role}' does not allow action '${action}'`);
 	}
 }
 
-function normalizeResource(value) {
-	const resource = String(value || '').trim();
+function normalizeResource(value: unknown): string {
+	const resource: string = String(value || '').trim();
 	if (!resource) {
 		return '';
 	}
@@ -81,13 +82,13 @@ function normalizeResource(value) {
 	return resource;
 }
 
-function deriveDelegateResource(request, targetMeta) {
-	const explicit = normalizeResource(targetMeta.delegate_resource || targetMeta.resource);
+function deriveDelegateResource(request: PluginRequest, targetMeta: Record<string, unknown>): string {
+	const explicit: string = normalizeResource(targetMeta.delegate_resource || targetMeta.resource);
 	if (explicit) {
 		return explicit;
 	}
 
-	const fromRequest = normalizeResource(request.resource);
+	const fromRequest: string = normalizeResource(request.resource);
 	if (fromRequest && !RESERVED_RESOURCES.has(fromRequest)) {
 		return fromRequest;
 	}
@@ -95,8 +96,8 @@ function deriveDelegateResource(request, targetMeta) {
 	return 'plugin:postgres_agent';
 }
 
-function stripRouterFields(obj) {
-	const clone = { ...obj };
+function stripRouterFields(obj: Record<string, unknown>): Record<string, unknown> {
+	const clone: Record<string, unknown> = { ...obj };
 	delete clone.delegate_resource;
 	delete clone.delegate_target;
 	delete clone.resource;
@@ -111,40 +112,40 @@ function stripRouterFields(obj) {
 	return clone;
 }
 
-function jsonIfNonEmptyObject(value) {
+function jsonIfNonEmptyObject(value: unknown): string | null {
 	if (!value || typeof value !== 'object' || Array.isArray(value)) {
 		return null;
 	}
-	if (Object.keys(value).length === 0) {
+	if (Object.keys(value as Record<string, unknown>).length === 0) {
 		return null;
 	}
 	return JSON.stringify(value);
 }
 
-function stringifyDelegateTarget(value) {
+function stringifyDelegateTarget(value: unknown): string | null {
 	if (value === null || value === undefined) {
 		return null;
 	}
 	if (typeof value === 'string') {
-		const trimmed = value.trim();
+		const trimmed: string = value.trim();
 		return trimmed.length > 0 ? trimmed : null;
 	}
 	return JSON.stringify(value);
 }
 
-function deriveDelegateTarget(request, targetMeta) {
-	const explicit = stringifyDelegateTarget(targetMeta.delegate_target);
+function deriveDelegateTarget(request: PluginRequest, targetMeta: Record<string, unknown>): string | null {
+	const explicit: string | null = stringifyDelegateTarget(targetMeta.delegate_target);
 	if (explicit) {
 		return explicit;
 	}
 
-	const requestObj = parseObjectJson(request.target);
+	const requestObj: Record<string, unknown> | null = parseObjectJson(request.target);
 	if (requestObj) {
 		return jsonIfNonEmptyObject(stripRouterFields(requestObj));
 	}
 
 	if (typeof request.target === 'string') {
-		const trimmed = request.target.trim();
+		const trimmed: string = request.target.trim();
 		return trimmed.length > 0 ? trimmed : null;
 	}
 
@@ -152,15 +153,15 @@ function deriveDelegateTarget(request, targetMeta) {
 }
 
 try {
-	const { request } = pluginContext();
-	const role = normalizeRole(process.env.PINOKIO_DB_ROLE || 'read');
-	const action = normalizeAction(request.action);
+	const { request }: { request: PluginRequest } = pluginContext();
+	const role: string = normalizeRole(process.env.PINOKIO_DB_ROLE || 'read');
+	const action: string = normalizeAction(request.action);
 	if (!action) {
 		fail('missing request action');
 	}
 	ensureActionAllowed(role, action);
 
-	const targetMeta = parseTargetMeta(request.target);
+	const targetMeta: Record<string, unknown> = parseTargetMeta(request.target);
 	if (targetMeta.action && normalizeAction(targetMeta.action) !== action) {
 		fail('target.action override is not allowed for db role agent');
 	}
@@ -168,8 +169,8 @@ try {
 		fail('target.delegate_action override is not allowed for db role agent');
 	}
 
-	const delegateResource = deriveDelegateResource(request, targetMeta);
-	const delegateTarget = deriveDelegateTarget(request, targetMeta);
+	const delegateResource: string = deriveDelegateResource(request, targetMeta);
+	const delegateTarget: string | null = deriveDelegateTarget(request, targetMeta);
 
 	spawnChild(
 		{
@@ -191,6 +192,6 @@ try {
 			delegate_resource: delegateResource
 		}
 	);
-} catch (error) {
+} catch (error: unknown) {
 	fail(error instanceof Error ? error.message : String(error));
 }

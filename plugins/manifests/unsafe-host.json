@@ -21,7 +21,7 @@
   "plugins": [
     {
       "name": "unsafe_host_agent",
-      "command": "node plugins/unsafe-host-agent-plugin.mjs",
+      "command": "node plugins/unsafe-host-agent-plugin.ts",
       "host_only": true,
       "allowed_actions": ["create", "read", "update", "delete"],
       "managed_only": true,

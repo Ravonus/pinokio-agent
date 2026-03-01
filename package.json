@@ -4,19 +4,28 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "worker:check": "node --check workers/playwright-worker.mjs && node --check workers/playwright-service.mjs",
-    "plugin:echo": "node plugins/echo-plugin.mjs",
-    "plugin:spawn-dev": "node plugins/spawn-dev-plugin.mjs",
-    "connection:telegram": "node plugins/telegram-connection.mjs",
-    "hook:connection-router": "node hooks/connection-router.mjs",
+    "typecheck": "tsc --noEmit",
+    "worker:check": "tsc --noEmit --strict workers/playwright-worker.ts workers/playwright-service.ts",
+    "plugin:echo": "node plugins/echo-plugin.ts",
+    "plugin:spawn-dev": "node plugins/spawn-dev-plugin.ts",
+    "connection:telegram": "node plugins/telegram-connection.ts",
+    "hook:connection-router": "node hooks/connection-router.ts",
     "ui:dev": "npm --prefix ui run dev",
     "ui:build": "npm --prefix ui run build",
     "ui:check": "npm --prefix ui run check",
-    "plugin:chat-agent": "node plugins/chat-agent-plugin.mjs",
-    "plugin:chat-host": "node plugins/chat-host-plugin.mjs",
-    "plugin:postgres-agent": "node plugins/postgres-agent-plugin.mjs"
+    "test:playwright-replay": "node tests/playwright-replay.test.ts",
+    "plugin:chat-agent": "node plugins/chat-agent-plugin.ts",
+    "plugin:postgres-agent": "node plugins/postgres-agent-plugin.ts"
   },
   "dependencies": {
-    "playwright": "^1.58.2"
+    "playwright": "^1.58.2",
+    "playwright-extra": "^4.3.6",
+    "playwright-extra-plugin-stealth": "^0.0.1",
+    "xstate": "^5.28.0",
+    "zod": "^4.3.6"
+  },
+  "devDependencies": {
+    "@types/node": "^25.3.2",
+    "typescript": "^5.8.0"
   }
 }

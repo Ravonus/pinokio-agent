@@ -50,7 +50,7 @@
 
 ## Playwright
 
-- Playwright service is started by Rust (`workers/playwright-service.mjs` by default).
+- Playwright service is started by Rust (`workers/playwright-service.ts` by default).
 - Rust picks host/container service command from config and injects runtime env into task agents.
 - Chromium install policy is controlled by Rust config (`auto_install_chromium` + `install_command`).
 - Service returns structured JSON (title/url/status for now).

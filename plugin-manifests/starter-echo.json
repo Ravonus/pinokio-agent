@@ -26,7 +26,7 @@
   "plugins": [
     {
       "name": "starter_echo_agent",
-      "command": "node plugins/echo-plugin.mjs",
+      "command": "node plugins/echo-plugin.ts",
       "host_only": false,
       "allowed_actions": [
         "read",

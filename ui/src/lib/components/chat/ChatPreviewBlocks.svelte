@@ -100,6 +100,10 @@
 	function shownCount(block: ChatUiBlock): number {
 		return Math.min(block.items.length, MAX_VISIBLE_ITEMS);
 	}
+
+	function isTelemetryBlock(block: ChatUiBlock): boolean {
+		return block.type === 'playwright_workflow_telemetry';
+	}
 </script>
 
 {#if blocks.length > 0}
@@ -117,22 +121,35 @@
 						<p class="mono mt-0.5 truncate text-[10px] text-[var(--text-soft)]">{block.scope_dir}</p>
 					{/if}
 				</div>
-				<div class="chat-preview-grid" class:chat-preview-grid-list={block.type === 'file_list'}>
-					{#each block.items.slice(0, MAX_VISIBLE_ITEMS) as item (`${item.path ?? item.relative_path ?? item.name}`)}
-						<article class="chat-preview-card">
-							<div class="chat-preview-thumb" data-kind={item.kind}>
-								<span>{thumbForItem(item)}</span>
-							</div>
-							<div class="min-w-0">
-								<p class="truncate text-xs font-semibold text-[var(--text)]">{item.name}</p>
-								<p class="mono mt-0.5 truncate text-[10px] text-[var(--text-soft)]">
-									{item.relative_path ?? item.path ?? item.name}
-								</p>
-								<p class="mt-0.5 text-[10px] text-[var(--text-soft)]">{itemMeta(item)}</p>
-							</div>
-						</article>
-					{/each}
-				</div>
+				{#if isTelemetryBlock(block)}
+						<div class="space-y-2">
+							{#each block.items.slice(0, MAX_VISIBLE_ITEMS) as item, itemIndex (`${block.type}-${itemIndex}-${item.path ?? item.relative_path ?? item.name}`)}
+								<article class="surface-subtle rounded-lg border border-[var(--line)] p-2">
+									<p class="text-xs font-semibold text-[var(--text)]">{item.name}</p>
+									<p class="mono mt-1 break-words text-[11px] text-[var(--text-soft)]">
+										{item.relative_path ?? item.path ?? item.name}
+									</p>
+								</article>
+							{/each}
+						</div>
+					{:else}
+						<div class="chat-preview-grid" class:chat-preview-grid-list={block.type === 'file_list'}>
+							{#each block.items.slice(0, MAX_VISIBLE_ITEMS) as item, itemIndex (`${block.type}-${itemIndex}-${item.path ?? item.relative_path ?? item.name}`)}
+								<article class="chat-preview-card">
+									<div class="chat-preview-thumb" data-kind={item.kind}>
+										<span>{thumbForItem(item)}</span>
+									</div>
+								<div class="min-w-0">
+									<p class="truncate text-xs font-semibold text-[var(--text)]">{item.name}</p>
+									<p class="mono mt-0.5 truncate text-[10px] text-[var(--text-soft)]">
+										{item.relative_path ?? item.path ?? item.name}
+									</p>
+									<p class="mt-0.5 text-[10px] text-[var(--text-soft)]">{itemMeta(item)}</p>
+								</div>
+							</article>
+						{/each}
+					</div>
+				{/if}
 				{#if (block.total_count ?? block.items.length) > shownCount(block)}
 					<p class="mt-2 text-[11px] text-[var(--text-soft)]">
 						Showing {shownCount(block)} of {block.total_count ?? block.items.length} items

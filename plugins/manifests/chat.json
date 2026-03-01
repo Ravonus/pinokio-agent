@@ -4,6 +4,11 @@
   "name": "Chat Agents",
   "version": "1.0.0",
   "description": "Container-first chat orchestration agents and chat UI extension.",
+  "requires": {
+    "manifests": ["pinokio.database"],
+    "plugins": ["postgres_agent"],
+    "services": ["postgres_main"]
+  },
   "runtime": {
     "mode": "container",
     "requires_container": true,
@@ -21,7 +26,7 @@
   "plugins": [
     {
       "name": "chat_agent",
-      "command": "node plugins/chat-agent-plugin.mjs",
+      "command": "node plugins/chat-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["create", "read", "update", "delete"],
       "managed_only": false,
@@ -50,11 +55,11 @@
     },
     {
       "name": "chat_worker_agent",
-      "command": "node plugins/chat-worker-agent-plugin.mjs",
+      "command": "node plugins/chat-worker-agent-plugin.ts",
       "host_only": false,
       "allowed_actions": ["create", "read", "update", "delete"],
       "managed_only": false,
-      "dependencies": [],
+      "dependencies": ["plugin:postgres_agent"],
       "capabilities": {
         "allow_spawn_child": true,
         "allow_hook_requests": false,
@@ -72,8 +77,8 @@
         "filesystem_read": false,
         "filesystem_write": false,
         "exec": true,
-        "memory_read": false,
-        "memory_write": false,
+        "memory_read": true,
+        "memory_write": true,
         "playwright": false
       }
     }

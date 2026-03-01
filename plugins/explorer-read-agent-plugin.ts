@@ -1,34 +1,122 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { pluginContext, respond, spawnChild, fail } from '../sdk/typescript/pinokio-sdk.mjs';
+import { pluginContext, respond, spawnChild, fail } from '../sdk/typescript/pinokio-sdk.ts';
+import type { PluginRequest, SpawnChildRequest, SocketRequest } from '../sdk/typescript/pinokio-sdk.ts';
 
-const SUPPORTED_ACTIONS = new Set(['read']);
-const READ_DESIRED_ACTIONS = new Set(['read', 'info']);
-const MUTATION_DESIRED_ACTIONS = new Set(['create', 'update', 'delete']);
-const SCRIPT_MUTATION_OPERATIONS = new Set([
+const SUPPORTED_ACTIONS: Set<string> = new Set(['read']);
+const READ_DESIRED_ACTIONS: Set<string> = new Set(['read', 'info']);
+const MUTATION_DESIRED_ACTIONS: Set<string> = new Set(['create', 'update', 'delete']);
+const SCRIPT_MUTATION_OPERATIONS: Set<string> = new Set([
   'delete_by_extension',
   'cleanup',
   'zip_files_over_size',
   'archive_large_files',
   'run_script'
 ]);
-const DEFAULT_SCOPE_DIR = process.env.PINOKIO_EXPLORER_SCOPE || '/app';
-const DEFAULT_LIMIT = 200;
-const MAX_LIMIT = 5000;
-const PREVIEW_ITEM_LIMIT = 120;
-const DEFAULT_CHANNEL = 'default';
-const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'heic', 'tiff']);
-const VIDEO_EXTENSIONS = new Set(['mp4', 'mov', 'mkv', 'avi', 'webm']);
-const AUDIO_EXTENSIONS = new Set(['mp3', 'wav', 'ogg', 'aac', 'm4a']);
-const ARCHIVE_EXTENSIONS = new Set(['zip', 'gz', 'tar', '7z', 'rar']);
-const DEFAULT_CLEANUP_NAMES = new Set(['.ds_store', 'thumbs.db', 'desktop.ini', '.localized']);
-const DEFAULT_CLEANUP_EXTENSIONS = new Set(['tmp', 'bak', 'old', 'log', 'dmp', 'rar']);
+const DEFAULT_SCOPE_DIR: string = process.env.PINOKIO_EXPLORER_SCOPE || '/app';
+const DEFAULT_LIMIT: number = 200;
+const MAX_LIMIT: number = 5000;
+const PREVIEW_ITEM_LIMIT: number = 120;
+const DEFAULT_CHANNEL: string = 'default';
+const IMAGE_EXTENSIONS: Set<string> = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'heic', 'tiff']);
+const VIDEO_EXTENSIONS: Set<string> = new Set(['mp4', 'mov', 'mkv', 'avi', 'webm']);
+const AUDIO_EXTENSIONS: Set<string> = new Set(['mp3', 'wav', 'ogg', 'aac', 'm4a']);
+const ARCHIVE_EXTENSIONS: Set<string> = new Set(['zip', 'gz', 'tar', '7z', 'rar']);
+const DEFAULT_CLEANUP_NAMES: Set<string> = new Set(['.ds_store', 'thumbs.db', 'desktop.ini', '.localized']);
+const DEFAULT_CLEANUP_EXTENSIONS: Set<string> = new Set(['tmp', 'bak', 'old', 'log', 'dmp', 'rar']);
 
-function normalizeAction(value) {
+interface PathDescription {
+  path: string;
+  relative_path: string | null;
+  name: string;
+  kind: string;
+  exists: boolean;
+  size: number | null;
+  size_human: string | null;
+  modified_at: string | null;
+}
+
+interface MatchEntry {
+  path: string;
+  relative_path: string;
+  name: string;
+  kind: string;
+  exists: boolean;
+  size: number | null;
+  size_human: string | null;
+  modified_at: string | null;
+}
+
+interface TargetMeta {
+  [key: string]: unknown;
+}
+
+interface ScriptStep {
+  op: string;
+  [key: string]: unknown;
+}
+
+interface ScriptDefinition {
+  steps: ScriptStep[];
+  step_count: number;
+  require_handoff_matches: boolean;
+}
+
+interface ScriptMeta {
+  operation: string;
+  step_count?: number;
+  require_handoff_matches?: boolean;
+  script?: Record<string, unknown>;
+  extensions?: string[];
+  cleanup_profile?: string;
+  min_size_bytes?: number;
+  archive_destination?: string | null;
+  delete_source?: boolean;
+}
+
+interface ScriptSelection {
+  matches: MatchEntry[];
+  script_meta: ScriptMeta | null;
+}
+
+interface SocketChannels {
+  global_channel: string;
+  personal_channel: string | null;
+  session_channel: string;
+  publish_channels: string[];
+}
+
+interface InfoPayload {
+  path: string;
+  kind: string;
+  size_bytes: number | null;
+  size_human: string | null;
+  modified_at: string;
+  file_count: number;
+  directory_count: number;
+  total_size_bytes: number;
+  total_size_human: string | null;
+  entries: PathDescription[];
+}
+
+interface FilePreviewBlock {
+  type: string;
+  source_plugin: string;
+  channel_targets: string[];
+  title: string;
+  subtitle: string;
+  scope_dir: string;
+  query: string | null;
+  total_count: number;
+  shown_count: number;
+  items: Record<string, unknown>[];
+}
+
+function normalizeAction(value: unknown): string {
   return String(value || '').trim().toLowerCase();
 }
 
-function normalizeScriptOperation(value) {
+function normalizeScriptOperation(value: unknown): string {
   const operation = normalizeAction(value);
   if (operation === 'archive_large_files') {
     return 'zip_files_over_size';
@@ -39,7 +127,7 @@ function normalizeScriptOperation(value) {
   return operation;
 }
 
-function asOptionalString(value) {
+function asOptionalString(value: unknown): string | null {
   if (typeof value !== 'string') {
     return null;
   }
@@ -47,7 +135,7 @@ function asOptionalString(value) {
   return trimmed.length > 0 ? trimmed : null;
 }
 
-function toInt(value, fallback, min, max) {
+function toInt(value: unknown, fallback: number, min: number, max: number): number {
   const n = Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(n)) {
     return fallback;
@@ -55,7 +143,7 @@ function toInt(value, fallback, min, max) {
   return Math.min(Math.max(n, min), max);
 }
 
-function toPositiveInt(value) {
+function toPositiveInt(value: unknown): number | null {
   const n = Number.parseInt(String(value ?? ''), 10);
   if (!Number.isFinite(n) || n <= 0) {
     return null;
@@ -63,7 +151,7 @@ function toPositiveInt(value) {
   return n;
 }
 
-function parseTargetMeta(target) {
+function parseTargetMeta(target: unknown): TargetMeta {
   if (typeof target !== 'string') {
     return {};
   }
@@ -77,7 +165,7 @@ function parseTargetMeta(target) {
   try {
     const parsed = JSON.parse(trimmed);
     if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed;
+      return parsed as TargetMeta;
     }
   } catch {
     return { query: trimmed };
@@ -85,7 +173,7 @@ function parseTargetMeta(target) {
   return {};
 }
 
-function normalizeChannel(value) {
+function normalizeChannel(value: unknown): string {
   const normalized = String(value || '')
     .trim()
     .toLowerCase()
@@ -94,7 +182,7 @@ function normalizeChannel(value) {
   return normalized || DEFAULT_CHANNEL;
 }
 
-function normalizePluginResource(value, fallback, label) {
+function normalizePluginResource(value: unknown, fallback: string, label: string): string {
   const resolved = asOptionalString(value) || fallback;
   if (!resolved.startsWith('plugin:')) {
     fail(`${label} must be a plugin resource (got '${resolved}')`);
@@ -102,7 +190,7 @@ function normalizePluginResource(value, fallback, label) {
   return resolved;
 }
 
-function ensureDirectory(value, label) {
+function ensureDirectory(value: string, label: string): void {
   if (!fs.existsSync(value)) {
     fail(`${label} does not exist: ${value}`);
   }
@@ -112,7 +200,7 @@ function ensureDirectory(value, label) {
   }
 }
 
-function ensureInsideScope(scopeDir, candidate) {
+function ensureInsideScope(scopeDir: string, candidate: string): string {
   const scope = path.resolve(scopeDir);
   const resolved = path.resolve(candidate);
   if (resolved === scope) {
@@ -125,14 +213,14 @@ function ensureInsideScope(scopeDir, candidate) {
   return resolved;
 }
 
-function formatHumanBytes(bytes) {
+function formatHumanBytes(bytes: number): string | null {
   if (!Number.isFinite(bytes) || bytes < 0) {
     return null;
   }
   if (bytes < 1024) {
     return `${bytes} B`;
   }
-  const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+  const units: string[] = ['KB', 'MB', 'GB', 'TB', 'PB'];
   let value = bytes;
   let unitIndex = -1;
   while (value >= 1024 && unitIndex < units.length - 1) {
@@ -145,7 +233,7 @@ function formatHumanBytes(bytes) {
   return `${value.toFixed(value >= 100 ? 0 : value >= 10 ? 1 : 2)} ${units[unitIndex]}`;
 }
 
-function resolvePathHint(scopeDir, hint) {
+function resolvePathHint(scopeDir: string, hint: unknown): string | null {
   const normalized = asOptionalString(hint);
   if (!normalized) {
     return null;
@@ -156,7 +244,7 @@ function resolvePathHint(scopeDir, hint) {
   return ensureInsideScope(scopeDir, path.join(scopeDir, normalized));
 }
 
-function describePath(fullPath, scopeDir) {
+function describePath(fullPath: string, scopeDir: string | null): PathDescription {
   if (!fs.existsSync(fullPath)) {
     return {
       path: fullPath,
@@ -183,15 +271,15 @@ function describePath(fullPath, scopeDir) {
   };
 }
 
-function findMatches(scopeDir, query, limit, recursiveSearch) {
+function findMatches(scopeDir: string, query: string | null, limit: number, recursiveSearch: boolean): MatchEntry[] {
   const queryText = asOptionalString(query);
   const q = queryText ? queryText.toLowerCase() : null;
-  const matches = [];
-  const stack = [scopeDir];
+  const matches: MatchEntry[] = [];
+  const stack: string[] = [scopeDir];
 
   while (stack.length > 0 && matches.length < limit) {
-    const current = stack.pop();
-    let entries = [];
+    const current = stack.pop()!;
+    let entries: fs.Dirent[] = [];
     try {
       entries = fs.readdirSync(current, { withFileTypes: true });
     } catch {
@@ -210,8 +298,8 @@ function findMatches(scopeDir, query, limit, recursiveSearch) {
       const relativePath = path.relative(scopeDir, fullPath);
       const haystack = `${entry.name} ${relativePath}`.toLowerCase();
       if (!q || haystack.includes(q)) {
-        let size = null;
-        let modifiedAt = null;
+        let size: number | null = null;
+        let modifiedAt: string | null = null;
         try {
           const stat = fs.statSync(fullPath);
           size = stat.isFile() ? stat.size : null;
@@ -245,7 +333,7 @@ function findMatches(scopeDir, query, limit, recursiveSearch) {
   return matches;
 }
 
-function resolveDesiredPath(desiredAction, explicitCandidate, matches) {
+function resolveDesiredPath(desiredAction: string, explicitCandidate: PathDescription | null, matches: MatchEntry[]): string | null {
   if (desiredAction === 'create') {
     if (explicitCandidate?.path) {
       return explicitCandidate.path;
@@ -264,14 +352,14 @@ function resolveDesiredPath(desiredAction, explicitCandidate, matches) {
   return null;
 }
 
-function deriveMutateFlag(targetMeta, desiredAction) {
+function deriveMutateFlag(targetMeta: TargetMeta, desiredAction: string): boolean {
   if (targetMeta.mutate === true) {
     return true;
   }
   return MUTATION_DESIRED_ACTIONS.has(desiredAction);
 }
 
-function sanitizeChannelToken(value, fallback) {
+function sanitizeChannelToken(value: unknown, fallback: string): string {
   const normalized = String(value || '')
     .trim()
     .toLowerCase()
@@ -280,7 +368,7 @@ function sanitizeChannelToken(value, fallback) {
   return normalized || fallback;
 }
 
-function deriveSocketChannels(request, targetMeta) {
+function deriveSocketChannels(request: PluginRequest, targetMeta: TargetMeta): SocketChannels {
   const globalChannel =
     asOptionalString(targetMeta.socket_global_channel) ||
     asOptionalString(process.env.PINOKIO_SOCKET_GLOBAL_CHANNEL) ||
@@ -291,13 +379,13 @@ function deriveSocketChannels(request, targetMeta) {
   const sessionSeed =
     asOptionalString(targetMeta.socket_session) ||
     asOptionalString(targetMeta.session_channel) ||
-    asOptionalString(request.id) ||
+    asOptionalString(request.id as string) ||
     `${Date.now()}`;
   const sessionChannel =
     asOptionalString(targetMeta.socket_channel) ||
     `explorer:${sanitizeChannelToken(sessionSeed, 'session')}`;
   const publishChannels = Array.from(
-    new Set([globalChannel, sessionChannel, personalChannel].filter(Boolean))
+    new Set([globalChannel, sessionChannel, personalChannel].filter(Boolean) as string[])
   );
   return {
     global_channel: globalChannel,
@@ -307,7 +395,7 @@ function deriveSocketChannels(request, targetMeta) {
   };
 }
 
-function extensionFromName(name) {
+function extensionFromName(name: unknown): string {
   const value = String(name || '');
   const index = value.lastIndexOf('.');
   if (index <= 0 || index === value.length - 1) {
@@ -316,7 +404,7 @@ function extensionFromName(name) {
   return value.slice(index + 1).toLowerCase();
 }
 
-function normalizeExtensionToken(value) {
+function normalizeExtensionToken(value: unknown): string | null {
   const trimmed = String(value || '')
     .trim()
     .toLowerCase();
@@ -328,8 +416,8 @@ function normalizeExtensionToken(value) {
   return safe || null;
 }
 
-function parseExtensionsFromTarget(targetMeta) {
-  const out = [];
+function parseExtensionsFromTarget(targetMeta: TargetMeta): string[] {
+  const out: string[] = [];
   if (Array.isArray(targetMeta.extensions)) {
     for (const value of targetMeta.extensions) {
       const normalized = normalizeExtensionToken(value);
@@ -351,7 +439,7 @@ function parseExtensionsFromTarget(targetMeta) {
   return Array.from(new Set(out));
 }
 
-function parseMinSizeBytes(targetMeta) {
+function parseMinSizeBytes(targetMeta: TargetMeta): number | null {
   const fromBytes = toPositiveInt(targetMeta.min_size_bytes);
   if (fromBytes) {
     return fromBytes;
@@ -363,14 +451,14 @@ function parseMinSizeBytes(targetMeta) {
   return null;
 }
 
-function parseScriptDefinition(targetMeta) {
-  let script = null;
+function parseScriptDefinition(targetMeta: TargetMeta): ScriptDefinition {
+  let script: Record<string, unknown> | null = null;
   if (Array.isArray(targetMeta.script)) {
     script = { steps: targetMeta.script };
   } else if (targetMeta.script && typeof targetMeta.script === 'object' && !Array.isArray(targetMeta.script)) {
-    script = targetMeta.script;
+    script = targetMeta.script as Record<string, unknown>;
   } else if (typeof targetMeta.script === 'string') {
-    const trimmed = targetMeta.script.trim();
+    const trimmed = (targetMeta.script as string).trim();
     if (trimmed) {
       try {
         const parsed = JSON.parse(trimmed);
@@ -401,16 +489,17 @@ function parseScriptDefinition(targetMeta) {
     fail('run_script supports at most 200 steps');
   }
 
-  const steps = rawSteps.map((step, index) => {
+  const steps: ScriptStep[] = rawSteps.map((step: unknown, index: number) => {
     if (!step || typeof step !== 'object' || Array.isArray(step)) {
       fail(`run_script step #${index + 1} must be an object`);
     }
-    const op = normalizeAction(step.op || step.operation);
+    const stepObj = step as Record<string, unknown>;
+    const op = normalizeAction(stepObj.op || stepObj.operation);
     if (!op) {
       fail(`run_script step #${index + 1} requires 'op'`);
     }
     return {
-      ...step,
+      ...stepObj,
       op
     };
   });
@@ -421,11 +510,11 @@ function parseScriptDefinition(targetMeta) {
     require_handoff_matches:
       typeof script.require_handoff_matches === 'boolean'
         ? script.require_handoff_matches
-        : targetMeta.require_handoff_matches !== false
+        : (targetMeta.require_handoff_matches as boolean) !== false
   };
 }
 
-function thumbnailHintForEntry(kind, name) {
+function thumbnailHintForEntry(kind: string, name: string): string {
   if (kind === 'directory') {
     return 'DIR';
   }
@@ -454,14 +543,14 @@ function thumbnailHintForEntry(kind, name) {
   return ext.slice(0, 4).toUpperCase();
 }
 
-function shouldEmitUiBlocks(channel, responseFormat) {
+function shouldEmitUiBlocks(channel: string, responseFormat: string | null): boolean {
   if (responseFormat === 'ui_blocks') {
     return true;
   }
   return channel === 'ui_chat';
 }
 
-function buildReadSummary(scopeDir, query, matchCount) {
+function buildReadSummary(scopeDir: string, query: string | null, matchCount: number): string {
   if (matchCount === 0) {
     return scopeDir
       ? `No matching files or folders found in ${scopeDir}.`
@@ -473,7 +562,31 @@ function buildReadSummary(scopeDir, query, matchCount) {
   return `Found ${matchCount} item(s) in ${scopeDir}.`;
 }
 
-function buildScriptSummary(scopeDir, operation, matchCount, scriptMeta) {
+function buildMutationSummary(
+  desiredAction: string,
+  scopeDir: string,
+  resolvedPath: string | null,
+  query: string | null,
+  matchCount: number
+): string {
+  const label =
+    desiredAction === 'create'
+      ? 'create'
+      : desiredAction === 'update'
+        ? 'update'
+        : desiredAction === 'delete'
+          ? 'delete'
+          : desiredAction;
+  if (resolvedPath) {
+    return `Prepared ${label} operation for ${resolvedPath}.`;
+  }
+  if (query) {
+    return `Prepared ${label} operation from ${matchCount} match(es) for "${query}" in ${scopeDir}.`;
+  }
+  return `Prepared ${label} operation from ${matchCount} match(es) in ${scopeDir}.`;
+}
+
+function buildScriptSummary(scopeDir: string, operation: string, matchCount: number, scriptMeta: ScriptMeta | null): string {
   if (matchCount === 0) {
     if (operation === 'run_script' && scriptMeta?.require_handoff_matches === false) {
       return `Prepared run_script with ${scriptMeta?.step_count || 0} step(s) in ${scopeDir} (no candidate handoff required).`;
@@ -481,7 +594,7 @@ function buildScriptSummary(scopeDir, operation, matchCount, scriptMeta) {
     return `No candidates found for ${operation} in ${scopeDir}.`;
   }
   if (operation === 'delete_by_extension') {
-    const exts = Array.isArray(scriptMeta?.extensions) ? scriptMeta.extensions.join(', ') : 'selected';
+    const exts = Array.isArray(scriptMeta?.extensions) ? scriptMeta!.extensions!.join(', ') : 'selected';
     return `Prepared ${matchCount} file(s) for delete_by_extension (${exts}) in ${scopeDir}.`;
   }
   if (operation === 'cleanup') {
@@ -502,7 +615,7 @@ function buildScriptSummary(scopeDir, operation, matchCount, scriptMeta) {
   return `Prepared ${matchCount} candidate(s) for ${operation} in ${scopeDir}.`;
 }
 
-function buildInfoSummary(info) {
+function buildInfoSummary(info: InfoPayload | null): string {
   if (!info) {
     return 'No info available.';
   }
@@ -522,7 +635,16 @@ function buildInfoSummary(info) {
   ).toLocaleString()} bytes${totalHuman}.`;
 }
 
-function buildFilePreviewBlock({ matches, scopeDir, query, channel, title, subtitle }) {
+interface FilePreviewBlockParams {
+  matches: MatchEntry[];
+  scopeDir: string;
+  query: string | null;
+  channel: string;
+  title: string | null;
+  subtitle: string | null;
+}
+
+function buildFilePreviewBlock({ matches, scopeDir, query, channel, title, subtitle }: FilePreviewBlockParams): FilePreviewBlock {
   const items = matches.slice(0, PREVIEW_ITEM_LIMIT).map((entry) => {
     const name = asOptionalString(entry.name) || path.basename(asOptionalString(entry.path) || '');
     const kind = asOptionalString(entry.kind) || 'file';
@@ -557,15 +679,21 @@ function buildFilePreviewBlock({ matches, scopeDir, query, channel, title, subti
   };
 }
 
-function collectDirectoryStats(dirPath) {
+interface DirectoryStats {
+  totalSize: number;
+  fileCount: number;
+  directoryCount: number;
+}
+
+function collectDirectoryStats(dirPath: string): DirectoryStats {
   let totalSize = 0;
   let fileCount = 0;
   let directoryCount = 0;
-  const stack = [dirPath];
+  const stack: string[] = [dirPath];
 
   while (stack.length > 0) {
-    const current = stack.pop();
-    let entries = [];
+    const current = stack.pop()!;
+    let entries: fs.Dirent[] = [];
     try {
       entries = fs.readdirSync(current, { withFileTypes: true });
     } catch {
@@ -574,7 +702,7 @@ function collectDirectoryStats(dirPath) {
 
     for (const entry of entries) {
       const fullPath = path.join(current, entry.name);
-      let stat;
+      let stat: fs.Stats;
       try {
         stat = fs.statSync(fullPath);
       } catch {
@@ -594,7 +722,7 @@ function collectDirectoryStats(dirPath) {
   return { totalSize, fileCount, directoryCount };
 }
 
-function buildInfoPayload(scopeDir, targetPath) {
+function buildInfoPayload(scopeDir: string, targetPath: string): InfoPayload {
   const resolvedPath = ensureInsideScope(scopeDir, targetPath);
   if (!fs.existsSync(resolvedPath)) {
     fail(`info target not found: ${resolvedPath}`);
@@ -616,7 +744,7 @@ function buildInfoPayload(scopeDir, targetPath) {
   }
 
   const { totalSize, fileCount, directoryCount } = collectDirectoryStats(resolvedPath);
-  let entries = [];
+  let entries: PathDescription[] = [];
   try {
     const children = fs.readdirSync(resolvedPath, { withFileTypes: true });
     children
@@ -649,7 +777,7 @@ function buildInfoPayload(scopeDir, targetPath) {
   };
 }
 
-function selectScriptCandidates(operation, matches, targetMeta) {
+function selectScriptCandidates(operation: string, matches: MatchEntry[], targetMeta: TargetMeta): ScriptSelection {
   const normalizedOperation = normalizeScriptOperation(operation);
   if (!SCRIPT_MUTATION_OPERATIONS.has(normalizedOperation)) {
     return { matches, script_meta: null };
@@ -680,7 +808,7 @@ function selectScriptCandidates(operation, matches, targetMeta) {
       fail('delete_by_extension requires target.extensions (example: ["rar"])');
     }
     const extensionSet = new Set(extensions);
-    const selected = fileMatches.filter((item) => extensionSet.has(normalizeExtensionToken(extensionFromName(item.name))));
+    const selected = fileMatches.filter((item) => extensionSet.has(normalizeExtensionToken(extensionFromName(item.name)) as string));
     return {
       matches: selected,
       script_meta: {
@@ -717,12 +845,12 @@ function selectScriptCandidates(operation, matches, targetMeta) {
     if (!minSize) {
       fail(`${normalizedOperation} requires target.min_size_bytes`);
     }
-    const selected = fileMatches.filter((item) => typeof item.size === 'number' && item.size >= minSize);
+    const selected = fileMatches.filter((item) => typeof item.size === 'number' && item.size >= minSize!);
     return {
       matches: selected,
       script_meta: {
         operation: 'zip_files_over_size',
-        min_size_bytes: minSize,
+        min_size_bytes: minSize!,
         archive_destination: asOptionalString(targetMeta.archive_destination),
         delete_source: targetMeta.delete_source === true
       }
@@ -769,14 +897,14 @@ try {
     desiredAction === 'info' ||
     scriptOperation;
 
-  let matches = [];
+  let matches: MatchEntry[] = [];
   if (explicitCandidate) {
-    matches.push(explicitCandidate);
+    matches.push(explicitCandidate as MatchEntry);
   } else {
     matches = findMatches(scopeDir, query, limit, recursiveRead);
   }
 
-  let info = null;
+  let info: InfoPayload | null = null;
   if (desiredAction === 'info') {
     let infoTargetPath = explicitPath;
     if (!infoTargetPath) {
@@ -788,11 +916,11 @@ try {
     }
     info = buildInfoPayload(scopeDir, infoTargetPath);
     if (!explicitPath && info?.entries && info.entries.length > 0) {
-      matches = info.entries;
+      matches = info.entries as MatchEntry[];
     }
   }
 
-  let scriptMeta = null;
+  let scriptMeta: ScriptMeta | null = null;
   if (scriptOperation) {
     const scriptSelection = selectScriptCandidates(operation, matches, targetMeta);
     matches = scriptSelection.matches;
@@ -801,6 +929,17 @@ try {
 
   const mutate = deriveMutateFlag(targetMeta, desiredAction);
   const resolvedPath = resolveDesiredPath(desiredAction, explicitCandidate, matches);
+  const existingFileCreateWithContent =
+    desiredAction === 'create' &&
+    !scriptOperation &&
+    typeof targetMeta.content === 'string' &&
+    Boolean(resolvedPath) &&
+    matches.some(
+      (entry) => entry.path === resolvedPath && entry.exists === true && entry.kind === 'file'
+    );
+  const routedDesiredAction = existingFileCreateWithContent ? 'update' : desiredAction;
+  const routedOperation =
+    existingFileCreateWithContent && !operation ? 'write' : operation || null;
 
   if (mutate && !scriptOperation && desiredAction !== 'create' && !resolvedPath) {
     if (matches.length > 1) {
@@ -826,14 +965,24 @@ try {
       ? buildInfoSummary(info)
       : scriptOperation
         ? buildScriptSummary(scopeDir, operation, matches.length, scriptMeta)
-        : buildReadSummary(scopeDir, query, matches.length);
+        : mutate
+          ? buildMutationSummary(
+              routedDesiredAction,
+              scopeDir,
+              (resolvedPath || explicitPath || null) as string | null,
+              query,
+              matches.length
+            )
+          : buildReadSummary(scopeDir, query, matches.length);
 
   const previewTitle =
     desiredAction === 'info'
       ? `Info: ${path.basename(info?.path || scopeDir)}`
       : scriptOperation
         ? `Planned ${operation}`
-        : null;
+        : mutate
+          ? `Planned ${routedDesiredAction}`
+          : null;
   const previewSubtitle =
     desiredAction === 'info'
       ? info?.kind === 'directory'
@@ -849,7 +998,9 @@ try {
           }`
       : scriptOperation
         ? 'Scripted operation preview from explorer read worker'
-        : null;
+        : mutate
+          ? (resolvedPath || explicitPath || null)
+          : null;
 
   const uiBlocks = shouldEmitUiBlocks(channel, responseFormat)
     ? [
@@ -864,11 +1015,12 @@ try {
       ]
     : [];
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     ok: true,
     plugin: 'explorer_read_agent',
     mode: mutate ? 'read_then_write' : 'read_only',
-    desired_action: desiredAction,
+    desired_action: routedDesiredAction,
+    requested_desired_action: desiredAction,
     operation: operation || null,
     channel,
     response_format: uiBlocks.length > 0 ? 'ui_blocks' : responseFormat || 'text',
@@ -897,17 +1049,17 @@ try {
   const socketChannels = deriveSocketChannels(request, targetMeta);
   const senderAgentId =
     asOptionalString(process.env.PINOKIO_SOCKET_AGENT_ID) ||
-    asOptionalString(request.caller_agent_id) ||
+    asOptionalString(request.caller_agent_id as string) ||
     'explorer_read_agent';
 
-  const handoffPayload = {
+  const handoffPayload: Record<string, unknown> = {
     schema: 'pinokio.explorer.handoff/v1',
     plugin: 'explorer_read_agent',
     sender_agent_id: senderAgentId,
     sender_resource:
       asOptionalString(process.env.PINOKIO_SOCKET_RESOURCE) || 'plugin:explorer_read_agent',
-    request_id: asOptionalString(request.id),
-    desired_action: desiredAction,
+    request_id: asOptionalString(request.id as string),
+    desired_action: routedDesiredAction,
     scope_dir: scopeDir,
     resolved_path: resolvedPath,
     query,
@@ -915,7 +1067,7 @@ try {
     match_count: matches.length,
     script_plan: scriptMeta,
     options: {
-      operation: operation || null,
+      operation: routedOperation,
       kind: asOptionalString(targetMeta.kind),
       content: typeof targetMeta.content === 'string' ? targetMeta.content : null,
       overwrite: targetMeta.overwrite === true,
@@ -933,22 +1085,41 @@ try {
       require_handoff_matches:
         scriptMeta && typeof scriptMeta.require_handoff_matches === 'boolean'
           ? scriptMeta.require_handoff_matches
-          : targetMeta.require_handoff_matches !== false
+          : typeof targetMeta.require_handoff_matches === 'boolean'
+            ? targetMeta.require_handoff_matches
+            : false
     }
   };
 
-  const writeTarget = {
+  const writeTarget: Record<string, unknown> = {
     scope_dir: scopeDir,
-    desired_action: desiredAction,
+    desired_action: routedDesiredAction,
     path: asOptionalString(targetMeta.path),
     resolved_path: resolvedPath || explicitPath,
     query,
-    operation: operation || null,
+    operation: routedOperation,
+    handoff_matches: matches,
+    script_plan: scriptMeta,
+    kind: asOptionalString(targetMeta.kind),
+    content: typeof targetMeta.content === 'string' ? targetMeta.content : null,
+    overwrite: targetMeta.overwrite === true,
+    ensure_parent: targetMeta.ensure_parent === false ? false : true,
+    new_name: asOptionalString(targetMeta.new_name),
+    destination: asOptionalString(targetMeta.destination),
+    recursive: targetMeta.recursive === false ? false : true,
+    dry_run: targetMeta.dry_run === true,
+    extensions: parseExtensionsFromTarget(targetMeta),
+    cleanup_profile: asOptionalString(targetMeta.cleanup_profile),
+    min_size_bytes: parseMinSizeBytes(targetMeta),
+    archive_destination: asOptionalString(targetMeta.archive_destination),
+    delete_source: targetMeta.delete_source === true,
     script: scriptMeta?.script || null,
     require_handoff_matches:
       scriptMeta && typeof scriptMeta.require_handoff_matches === 'boolean'
         ? scriptMeta.require_handoff_matches
-        : targetMeta.require_handoff_matches !== false,
+        : typeof targetMeta.require_handoff_matches === 'boolean'
+          ? targetMeta.require_handoff_matches
+          : false,
     channel,
     response_format: responseFormat,
     socket_channel: socketChannels.session_channel,
@@ -956,6 +1127,18 @@ try {
     socket_global_channel: socketChannels.global_channel,
     socket_personal_channel: socketChannels.personal_channel
   };
+
+  const socketRequests: Record<string, unknown>[] = socketChannels.publish_channels.map((socketChannel: string) => ({
+    op: 'publish',
+    channel: socketChannel,
+    payload: handoffPayload
+  }));
+  socketRequests.push({
+    op: 'consume',
+    channel: socketChannels.session_channel,
+    max_messages: 1,
+    sender_filter: senderAgentId
+  });
 
   spawnChild(
     {
@@ -972,11 +1155,7 @@ try {
     {
       ...payload,
       socket_channels: socketChannels,
-      socket_requests: socketChannels.publish_channels.map((socketChannel) => ({
-        op: 'publish',
-        channel: socketChannel,
-        payload: handoffPayload
-      }))
+      socket_requests: socketRequests
     }
   );
 } catch (error) {
