@@ -1,0 +1,70 @@
+{
+  "api_version": "pinokio.plugin/v1",
+  "id": "pinokio.unsafe_host",
+  "name": "Unsafe Host Agent",
+  "version": "1.0.0",
+  "description": "High-risk host runtime agent for explicit unsafe host operations.",
+  "runtime": {
+    "mode": "host",
+    "requires_container": false,
+    "unsafe_host_access": true
+  },
+  "extends": {
+    "agents": ["unsafe_host_agent"],
+    "containers": [],
+    "navigation": [],
+    "settings": ["unsafe_host_agent"],
+    "pages": [],
+    "resources": ["plugin:unsafe_host_agent"],
+    "hooks": []
+  },
+  "plugins": [
+    {
+      "name": "unsafe_host_agent",
+      "command": "node plugins/unsafe-host/index.ts",
+      "host_only": true,
+      "allowed_actions": ["create", "read", "update", "delete"],
+      "managed_only": true,
+      "dependencies": [],
+      "capabilities": {
+        "allow_spawn_child": false,
+        "allow_hook_requests": false,
+        "allow_network": true,
+        "allow_filesystem": true
+      },
+      "permissions": {
+        "create": true,
+        "read": true,
+        "update": true,
+        "delete": true,
+        "spawn_child": false,
+        "hook_extensions": false,
+        "network": true,
+        "filesystem_read": true,
+        "filesystem_write": true,
+        "exec": true,
+        "memory_read": true,
+        "memory_write": true,
+        "playwright": true
+      }
+    }
+  ],
+  "skills": [
+    {
+      "name": "unsafe.host_ops",
+      "description": "Apply strict guardrails to unsafe host command execution.",
+      "path": "plugins/skills/unsafe/host-ops.md",
+      "targets": {
+        "plugins": ["unsafe_host_agent"],
+        "resources": ["plugin:unsafe_host_agent"],
+        "actions": ["create", "read", "update", "delete"]
+      },
+      "tags": ["unsafe", "host", "security"],
+      "enabled": true
+    }
+  ],
+  "install": {
+    "summary": "No additional installation steps required.",
+    "commands": []
+  }
+}

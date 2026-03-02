@@ -327,7 +327,7 @@ manifest_dirs = [
 [plugin_registry.installed_manifests."pinokio.playwright"]
 name = "Playwright Browser Automation"
 version = "1.0.0"
-manifest_path = "/Users/ravonus/Documents/pinokio-agent/plugins/manifests/playwright.json"
+manifest_path = "plugins/playwright/manifest.json"
 plugins = [
     "playwright_agent",
     "playwright_read_agent",
@@ -343,7 +343,7 @@ hook_extensions = []
 [plugin_registry.installed_manifests."pinokio.unsafe_host"]
 name = "Unsafe Host Agent"
 version = "1.0.0"
-manifest_path = "../plugins/manifests/unsafe-host.json"
+manifest_path = "plugins/unsafe-host/manifest.json"
 plugins = ["unsafe_host_agent"]
 ui_extensions = []
 services = []
@@ -354,7 +354,7 @@ hook_extensions = []
 [plugin_registry.installed_manifests."pinokio.explorer"]
 name = "Explorer"
 version = "1.0.0"
-manifest_path = "../plugins/manifests/explorer.json"
+manifest_path = "plugins/explorer/manifest.json"
 plugins = [
     "explorer_agent",
     "explorer_read_agent",
@@ -369,7 +369,7 @@ hook_extensions = []
 [plugin_registry.installed_manifests."pinokio.echo"]
 name = "Echo"
 version = "1.0.0"
-manifest_path = "../plugins/manifests/echo.json"
+manifest_path = "plugins/echo/manifest.json"
 plugins = ["echo"]
 ui_extensions = []
 services = []
@@ -380,7 +380,7 @@ hook_extensions = []
 [plugin_registry.installed_manifests."pinokio.chat"]
 name = "Chat Agents"
 version = "1.0.0"
-manifest_path = "/Users/ravonus/Documents/pinokio-agent/plugins/manifests/chat.json"
+manifest_path = "plugins/chat/manifest.json"
 plugins = [
     "chat_agent",
     "chat_worker_agent",
@@ -397,7 +397,7 @@ hook_extensions = []
 [plugin_registry.installed_manifests."pinokio.memory"]
 name = "Memory System"
 version = "1.0.0"
-manifest_path = "../plugins/manifests/memory.json"
+manifest_path = "plugins/memory/manifest.json"
 plugins = ["memory_agent"]
 ui_extensions = []
 services = []
@@ -408,7 +408,7 @@ hook_extensions = []
 [plugin_registry.installed_manifests."pinokio.database"]
 name = "Database Core"
 version = "1.0.0"
-manifest_path = "../plugins/manifests/database.json"
+manifest_path = "plugins/database/manifest.json"
 plugins = [
     "postgres_agent",
     "db_router_agent",

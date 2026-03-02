@@ -1516,7 +1516,7 @@ fn default_installed_manifests() -> HashMap<String, InstalledPluginManifest> {
         InstalledPluginManifest {
             name: "Chat Agents".to_string(),
             version: "1.0.0".to_string(),
-            manifest_path: "plugins/manifests/chat.json".to_string(),
+            manifest_path: "plugins/chat/manifest.json".to_string(),
             plugins: vec!["chat_agent".to_string(), "chat_worker_agent".to_string()],
             ui_extensions: vec!["chat".to_string()],
             services: Vec::new(),
@@ -1533,7 +1533,7 @@ fn default_installed_manifests() -> HashMap<String, InstalledPluginManifest> {
         InstalledPluginManifest {
             name: "Database Core".to_string(),
             version: "1.0.0".to_string(),
-            manifest_path: "plugins/manifests/database.json".to_string(),
+            manifest_path: "plugins/database/manifest.json".to_string(),
             plugins: vec![
                 "postgres_agent".to_string(),
                 "db_router_agent".to_string(),
@@ -1555,7 +1555,7 @@ fn default_installed_manifests() -> HashMap<String, InstalledPluginManifest> {
         InstalledPluginManifest {
             name: "Memory System".to_string(),
             version: "1.0.0".to_string(),
-            manifest_path: "plugins/manifests/memory.json".to_string(),
+            manifest_path: "plugins/memory/manifest.json".to_string(),
             plugins: vec!["memory_agent".to_string()],
             ui_extensions: Vec::new(),
             services: Vec::new(),
@@ -1569,7 +1569,7 @@ fn default_installed_manifests() -> HashMap<String, InstalledPluginManifest> {
         InstalledPluginManifest {
             name: "Directory Plugin".to_string(),
             version: "1.0.0".to_string(),
-            manifest_path: "plugins/manifests/explorer.json".to_string(),
+            manifest_path: "plugins/explorer/manifest.json".to_string(),
             plugins: vec![
                 "explorer_agent".to_string(),
                 "explorer_read_agent".to_string(),
@@ -1587,7 +1587,7 @@ fn default_installed_manifests() -> HashMap<String, InstalledPluginManifest> {
         InstalledPluginManifest {
             name: "Playwright Browser Automation".to_string(),
             version: "1.0.0".to_string(),
-            manifest_path: "plugins/manifests/playwright.json".to_string(),
+            manifest_path: "plugins/playwright/manifest.json".to_string(),
             plugins: vec![
                 "playwright_agent".to_string(),
                 "playwright_read_agent".to_string(),
@@ -1606,7 +1606,7 @@ fn default_installed_manifests() -> HashMap<String, InstalledPluginManifest> {
         InstalledPluginManifest {
             name: "Unsafe Host Agent".to_string(),
             version: "1.0.0".to_string(),
-            manifest_path: "plugins/manifests/unsafe-host.json".to_string(),
+            manifest_path: "plugins/unsafe-host/manifest.json".to_string(),
             plugins: vec!["unsafe_host_agent".to_string()],
             ui_extensions: Vec::new(),
             services: Vec::new(),
@@ -1620,7 +1620,7 @@ fn default_installed_manifests() -> HashMap<String, InstalledPluginManifest> {
         InstalledPluginManifest {
             name: "Echo".to_string(),
             version: "1.0.0".to_string(),
-            manifest_path: "plugins/manifests/echo.json".to_string(),
+            manifest_path: "plugins/echo/manifest.json".to_string(),
             plugins: vec!["echo".to_string()],
             ui_extensions: Vec::new(),
             services: Vec::new(),

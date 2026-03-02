@@ -6,7 +6,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "worker:check": "tsc --noEmit --strict workers/playwright-worker.ts workers/playwright-service.ts",
-    "plugin:echo": "node plugins/echo-plugin.ts",
+    "plugin:echo": "node plugins/echo/index.ts",
     "plugin:spawn-dev": "node plugins/spawn-dev-plugin.ts",
     "connection:telegram": "node plugins/telegram-connection.ts",
     "hook:connection-router": "node hooks/connection-router.ts",
@@ -14,8 +14,8 @@
     "ui:build": "npm --prefix ui run build",
     "ui:check": "npm --prefix ui run check",
     "test:playwright-replay": "node tests/playwright-replay.test.ts",
-    "plugin:chat-agent": "node plugins/chat-agent-plugin.ts",
-    "plugin:postgres-agent": "node plugins/postgres-agent-plugin.ts"
+    "plugin:chat-agent": "node plugins/chat/index.ts",
+    "plugin:postgres-agent": "node plugins/database/postgres.ts"
   },
   "dependencies": {
     "playwright": "^1.58.2",

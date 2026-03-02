@@ -10,7 +10,7 @@ import {
   mergeSiteProfile,
   resolveApiAttemptFromCandidates,
   type SiteProfile
-} from '../plugins/playwright-runtime-utils.ts';
+} from '../plugins/playwright/runtime-utils.ts';
 
 interface ReplayFixture {
   name: string;

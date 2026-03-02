@@ -13,7 +13,7 @@ import {
   buildSelectorFallbackStack,
   resolveApiAttemptFromCandidates,
   type SiteProfile
-} from '../plugins/playwright-runtime-utils.ts';
+} from '../plugins/playwright/runtime-utils.ts';
 
 type PlaywrightAction = 'read_title' | 'discover' | 'run_actions';
 
