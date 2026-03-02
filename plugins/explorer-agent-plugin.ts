@@ -1,42 +1,10 @@
 import { pluginContext, spawnChild, fail } from '../sdk/typescript/pinokio-sdk.ts';
 import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
+import { asOptionalString, toInt, parseTargetMeta, normalizeAction } from './plugin-utils.ts';
 
 const SUPPORTED_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
 const SUPPORTED_READ_DESIRED_ACTIONS: Set<string> = new Set(['read', 'info']);
 
-function normalizeAction(value: unknown): string {
-  return String(value || '').trim().toLowerCase();
-}
-
-function parseTargetMeta(target: unknown): Record<string, unknown> {
-  if (typeof target !== 'string') {
-    return {};
-  }
-  const trimmed: string = target.trim();
-  if (!trimmed) {
-    return {};
-  }
-  if (!trimmed.startsWith('{')) {
-    return { query: trimmed };
-  }
-  try {
-    const parsed: unknown = JSON.parse(trimmed);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      return parsed as Record<string, unknown>;
-    }
-    return {};
-  } catch {
-    return { query: trimmed };
-  }
-}
-
-function asOptionalString(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const trimmed: string = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
 
 function normalizePluginResource(value: unknown, fallback: string, label: string): string {
   const resolved: string = asOptionalString(value) || fallback;
@@ -46,13 +14,6 @@ function normalizePluginResource(value: unknown, fallback: string, label: string
   return resolved;
 }
 
-function toInt(value: unknown, fallback: number, min: number, max: number): number {
-  const n: number = Number.parseInt(String(value ?? ''), 10);
-  if (!Number.isFinite(n)) {
-    return fallback;
-  }
-  return Math.min(Math.max(n, min), max);
-}
 
 function buildSummary(action: string): string {
   if (action === 'read') {

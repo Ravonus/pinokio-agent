@@ -2,55 +2,10 @@ import { spawnSync } from 'node:child_process';
 import type { SpawnSyncReturns } from 'node:child_process';
 import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.ts';
 import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
+import { parseJsonOutput, parseTargetMeta, resolveAgentBinary } from './plugin-utils.ts';
 
 const SUPPORTED_MODES: Set<string> = new Set(['llm', 'command']);
 
-function firstJsonStart(text: string): number {
-  const firstObject: number = text.indexOf('{');
-  const firstArray: number = text.indexOf('[');
-  if (firstObject === -1) return firstArray;
-  if (firstArray === -1) return firstObject;
-  return Math.min(firstObject, firstArray);
-}
-
-function parseJsonOutput(raw: unknown): unknown {
-  const trimmed: string = String(raw || '').trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start: number = firstJsonStart(trimmed);
-    if (start < 0) {
-      return null;
-    }
-    try {
-      return JSON.parse(trimmed.slice(start));
-    } catch {
-      return null;
-    }
-  }
-}
-
-function parseTargetMeta(target: unknown): Record<string, unknown> {
-  if (typeof target !== 'string') {
-    return {};
-  }
-  const trimmed: string = target.trim();
-  if (!trimmed) {
-    return {};
-  }
-  if (!trimmed.startsWith('{')) {
-    return { message: trimmed };
-  }
-  const parsed: unknown = parseJsonOutput(trimmed);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {};
-  }
-  return parsed as Record<string, unknown>;
-}
 
 function normalizeMessage(summary: unknown, targetMeta: Record<string, unknown>): string {
   const targetMessage: string =
@@ -96,27 +51,6 @@ function normalizeMode(value: unknown): string {
   return mode;
 }
 
-function resolveAgentBinary(): string {
-  const candidates: string[] = [
-    process.env.PINOKIO_AGENT_BIN,
-    'pinokio-agent',
-    '/usr/local/bin/pinokio-agent',
-    './target/debug/pinokio-agent',
-    './target/release/pinokio-agent'
-  ].filter(Boolean) as string[];
-
-  for (const candidate of candidates) {
-    const probe: SpawnSyncReturns<string> = spawnSync(candidate, ['--version'], {
-      encoding: 'utf8',
-      env: process.env
-    });
-    if (!probe.error && probe.status === 0) {
-      return candidate;
-    }
-  }
-
-  return 'pinokio-agent';
-}
 
 interface LlmResult {
   text: string;

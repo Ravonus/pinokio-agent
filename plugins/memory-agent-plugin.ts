@@ -1,6 +1,17 @@
-import { spawnSync } from 'node:child_process';
 import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.ts';
 import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
+import { normalizeAction, toInt } from './plugin-utils.ts';
+import {
+	resolveDbConnection,
+	runSql as runSqlBase,
+	runJson,
+	sqlQuote,
+	sqlJson,
+	sqlTextArray,
+	asObject,
+	asStringArray
+} from './db-common.ts';
+import type { DbConnection } from './db-common.ts';
 
 const SUPPORTED_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
 const SUPPORTED_POLICIES: Set<string> = new Set(['owner', 'all', 'acl']);
@@ -11,14 +22,6 @@ const MAX_LIMIT: number = 500;
 
 interface TargetMeta {
 	[key: string]: unknown;
-}
-
-interface DbConnection {
-	container: string;
-	database: string;
-	user: string;
-	password: string;
-	timeoutMs: number;
 }
 
 interface NamespaceAccess {
@@ -40,16 +43,6 @@ interface Permissions {
 	update: boolean;
 	delete: boolean;
 	admin: boolean;
-}
-
-interface RunSqlOptions {
-	tuplesOnly?: boolean;
-}
-
-function normalizeAction(value: unknown): string {
-	return String(value || '')
-		.trim()
-		.toLowerCase();
 }
 
 function parseTargetMeta(target: unknown): TargetMeta {
@@ -108,134 +101,8 @@ function normalizeNamespace(value: unknown, fallbackActor: string): string {
 	return safe;
 }
 
-function toInt(value: unknown, fallback: number, min: number, max: number): number {
-	const n = Number.parseInt(String(value ?? ''), 10);
-	if (!Number.isFinite(n)) {
-		return fallback;
-	}
-	return Math.min(Math.max(n, min), max);
-}
-
-function asObject(value: unknown): Record<string, unknown> {
-	if (!value || typeof value !== 'object' || Array.isArray(value)) {
-		return {};
-	}
-	return value as Record<string, unknown>;
-}
-
-function asStringArray(value: unknown): string[] {
-	if (!Array.isArray(value)) {
-		return [];
-	}
-	return value
-		.map((item) => String(item ?? '').trim())
-		.filter((item) => item.length > 0)
-		.slice(0, 200);
-}
-
-function sqlQuote(value: unknown): string {
-	return `'${String(value ?? '').replace(/'/g, "''")}'`;
-}
-
-function sqlJson(value: unknown): string {
-	return `${sqlQuote(JSON.stringify(asObject(value)))}::jsonb`;
-}
-
-function sqlTextArray(values: unknown): string {
-	const list = asStringArray(values);
-	if (list.length === 0) {
-		return 'ARRAY[]::text[]';
-	}
-	return `ARRAY[${list.map(sqlQuote).join(',')}]::text[]`;
-}
-
-function firstNonEmptyLine(text: unknown): string | null {
-	for (const line of String(text || '').split(/\r?\n/)) {
-		const trimmed = line.trim();
-		if (trimmed.length > 0) {
-			return trimmed;
-		}
-	}
-	return null;
-}
-
-function resolveConnection(targetMeta: TargetMeta): DbConnection {
-	const timeoutRaw = Number(targetMeta.timeout_ms);
-	const timeoutMs = Number.isFinite(timeoutRaw)
-		? Math.min(Math.max(Math.trunc(timeoutRaw), 1_000), 120_000)
-		: 30_000;
-	return {
-		container:
-			(typeof targetMeta.container === 'string' && (targetMeta.container as string).trim()) ||
-			process.env.PINOKIO_DB_CONTAINER ||
-			'pinokio-postgres-main',
-		database:
-			(typeof targetMeta.database === 'string' && (targetMeta.database as string).trim()) ||
-			process.env.PINOKIO_DB_NAME ||
-			process.env.PGDATABASE ||
-			'pinokio',
-		user:
-			(typeof targetMeta.user === 'string' && (targetMeta.user as string).trim()) ||
-			process.env.PINOKIO_DB_USER ||
-			process.env.PGUSER ||
-			'pinokio',
-		password:
-			(typeof targetMeta.password === 'string' && targetMeta.password as string) ||
-			process.env.PINOKIO_DB_PASSWORD ||
-			process.env.PGPASSWORD ||
-			'',
-		timeoutMs
-	};
-}
-
-function runSql(connection: DbConnection, sql: string, options: RunSqlOptions = {}): string {
-	const args: string[] = ['exec', '-i'];
-	if (connection.password) {
-		args.push('-e', `PGPASSWORD=${connection.password}`);
-	}
-	args.push(
-		connection.container,
-		'psql',
-		'-v',
-		'ON_ERROR_STOP=1',
-		'-X',
-		'-U',
-		connection.user,
-		'-d',
-		connection.database,
-		'-P',
-		'pager=off'
-	);
-	if (options.tuplesOnly) {
-		args.push('-t', '-A');
-	}
-	args.push('-c', sql);
-
-	const out = spawnSync('docker', args, {
-		encoding: 'utf8',
-		env: process.env,
-		timeout: connection.timeoutMs
-	});
-	if (out.error) {
-		throw new Error(`failed to execute docker: ${out.error.message}`);
-	}
-	if (out.status !== 0) {
-		throw new Error((out.stderr || out.stdout || `docker exited ${String(out.status)}`).trim());
-	}
-	return (out.stdout || '').trim();
-}
-
-function runJson(connection: DbConnection, sql: string): unknown {
-	const stdout = runSql(connection, sql, { tuplesOnly: true });
-	const line = firstNonEmptyLine(stdout);
-	if (!line) {
-		return null;
-	}
-	try {
-		return JSON.parse(line);
-	} catch {
-		throw new Error(`database returned invalid JSON: ${line.slice(0, 120)}`);
-	}
+function runSql(connection: DbConnection, sql: string, options: { tuplesOnly?: boolean } = {}): string {
+	return runSqlBase(connection, sql, options).stdout;
 }
 
 function ensureSchema(connection: DbConnection): void {
@@ -1070,7 +937,7 @@ try {
 	}
 
 	const targetMeta = parseTargetMeta(request.target);
-	const connection = resolveConnection(targetMeta);
+	const connection = resolveDbConnection(targetMeta);
 	ensureSchema(connection);
 
 	const actor = resolveActor(request, targetMeta);

@@ -1,5 +1,6 @@
 import { pluginContext, spawnChild, fail } from '../sdk/typescript/pinokio-sdk.ts';
 import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
+import { parseTargetMeta, normalizeAction } from './plugin-utils.ts';
 
 const ROLE_ACTIONS: Record<string, Set<string>> = {
 	read: new Set(['read']),
@@ -9,21 +10,6 @@ const ROLE_ACTIONS: Record<string, Set<string>> = {
 	delete: new Set(['delete']),
 	all: new Set(['create', 'read', 'update', 'delete'])
 };
-
-const RESERVED_RESOURCES: Set<string> = new Set([
-	'plugin:db_router_agent',
-	'plugin:db_read_agent',
-	'plugin:db_write_agent',
-	'plugin:db_create_agent',
-	'plugin:db_update_agent',
-	'plugin:db_delete_agent'
-]);
-
-function normalizeAction(value: unknown): string {
-	return String(value || '')
-		.trim()
-		.toLowerCase();
-}
 
 function parseObjectJson(raw: unknown): Record<string, unknown> | null {
 	if (typeof raw !== 'string') {
@@ -44,13 +30,15 @@ function parseObjectJson(raw: unknown): Record<string, unknown> | null {
 	return null;
 }
 
-function parseTargetMeta(target: unknown): Record<string, unknown> {
-	if (typeof target !== 'string') {
-		return {};
-	}
-	const parsed: Record<string, unknown> | null = parseObjectJson(target);
-	return parsed ?? {};
-}
+const RESERVED_RESOURCES: Set<string> = new Set([
+	'plugin:db_router_agent',
+	'plugin:db_read_agent',
+	'plugin:db_write_agent',
+	'plugin:db_create_agent',
+	'plugin:db_update_agent',
+	'plugin:db_delete_agent'
+]);
+
 
 function normalizeRole(value: unknown): string {
 	const role: string = String(value || '')

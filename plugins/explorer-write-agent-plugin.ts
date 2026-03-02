@@ -4,6 +4,7 @@ import { spawnSync } from 'node:child_process';
 import zlib from 'node:zlib';
 import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.ts';
 import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
+import { asOptionalString, normalizeAction } from './plugin-utils.ts';
 
 const SUPPORTED_REQUEST_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
 const MUTATION_ACTIONS: Set<string> = new Set(['create', 'update', 'delete']);
@@ -106,10 +107,6 @@ interface SocketHandoffResult {
   } | null;
 }
 
-function normalizeAction(value: unknown): string {
-  return String(value || '').trim().toLowerCase();
-}
-
 function normalizeScriptOperation(value: unknown): string {
   const operation = normalizeAction(value);
   if (operation === 'archive_large_files') {
@@ -119,14 +116,6 @@ function normalizeScriptOperation(value: unknown): string {
     return 'run_script';
   }
   return operation;
-}
-
-function asOptionalString(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
 }
 
 function toPositiveInt(value: unknown): number | null {

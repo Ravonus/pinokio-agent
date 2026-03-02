@@ -1,54 +1,9 @@
 import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.ts';
 import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
+import { parseTargetMeta } from './plugin-utils.ts';
 
 const SUPPORTED_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
 
-function firstJsonStart(text: string): number {
-  const firstObject: number = text.indexOf('{');
-  const firstArray: number = text.indexOf('[');
-  if (firstObject === -1) return firstArray;
-  if (firstArray === -1) return firstObject;
-  return Math.min(firstObject, firstArray);
-}
-
-function parseJsonOutput(raw: unknown): unknown {
-  const trimmed: string = String(raw || '').trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start: number = firstJsonStart(trimmed);
-    if (start < 0) {
-      return null;
-    }
-    try {
-      return JSON.parse(trimmed.slice(start));
-    } catch {
-      return null;
-    }
-  }
-}
-
-function parseTargetMeta(target: unknown): Record<string, unknown> {
-  if (typeof target !== 'string') {
-    return {};
-  }
-  const trimmed: string = target.trim();
-  if (!trimmed) {
-    return {};
-  }
-  if (!trimmed.startsWith('{')) {
-    return { message: trimmed };
-  }
-  const parsed: unknown = parseJsonOutput(trimmed);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {};
-  }
-  return parsed as Record<string, unknown>;
-}
 
 function normalizeMessage(summary: unknown, targetMeta: Record<string, unknown>): string {
   const targetMessage: string =

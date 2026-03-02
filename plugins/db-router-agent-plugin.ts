@@ -1,13 +1,8 @@
 import { pluginContext, spawnChild, fail } from '../sdk/typescript/pinokio-sdk.ts';
 import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
+import { normalizeAction, parseTargetMeta } from './plugin-utils.ts';
 
 const SUPPORTED_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
-
-function normalizeAction(value: unknown): string {
-	return String(value || '')
-		.trim()
-		.toLowerCase();
-}
 
 function parseObjectJson(raw: unknown): Record<string, unknown> | null {
 	if (typeof raw !== 'string') {
@@ -26,13 +21,6 @@ function parseObjectJson(raw: unknown): Record<string, unknown> | null {
 		return null;
 	}
 	return null;
-}
-
-function parseTargetMeta(target: unknown): Record<string, unknown> {
-	if (typeof target !== 'string') {
-		return {};
-	}
-	return parseObjectJson(target) ?? {};
 }
 
 function normalizeResource(value: unknown): string {

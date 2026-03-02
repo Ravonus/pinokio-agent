@@ -2,6 +2,31 @@ import { spawnSync } from 'node:child_process';
 import os from 'node:os';
 import path from 'node:path';
 
+// Re-export shared utilities for backward compatibility.
+// New code should import directly from './plugin-utils.ts'.
+export {
+  asOptionalString,
+  toBool,
+  toInt,
+  firstJsonStart,
+  parseJsonOutput,
+  parseTargetMeta,
+  resolveAgentBinary,
+  buildContainerLlmEnv,
+  runChatLlm,
+  normalizeAction,
+} from './plugin-utils.ts';
+export type { ChatLlmResult } from './plugin-utils.ts';
+
+import {
+  asOptionalString,
+  toBool,
+  toInt,
+  parseJsonOutput,
+  resolveAgentBinary,
+  buildContainerLlmEnv,
+} from './plugin-utils.ts';
+
 export interface PlaywrightActionStep {
   type: string;
   selector?: string;
@@ -64,12 +89,7 @@ export interface PlaywrightServicePayload {
   [key: string]: unknown;
 }
 
-export interface ChatLlmResult {
-  text: string;
-  profile: string;
-  provider: string;
-  model: string;
-}
+// ChatLlmResult is re-exported from plugin-utils.ts above.
 
 export interface PlaywrightExecutionPolicy {
   useUserContext: boolean;
@@ -127,92 +147,8 @@ const DEFAULT_SERVICE_URL_MAP: Array<{ keyword: string; url: string }> = [
   { keyword: 'shopify', url: 'https://admin.shopify.com/' }
 ];
 
-export function asOptionalString(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : null;
-}
-
-export function toBool(value: unknown, fallback: boolean = false): boolean {
-  if (typeof value === 'boolean') {
-    return value;
-  }
-  if (typeof value === 'number') {
-    return value !== 0;
-  }
-  const normalized = String(value || '').trim().toLowerCase();
-  if (!normalized) {
-    return fallback;
-  }
-  if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) {
-    return true;
-  }
-  if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) {
-    return false;
-  }
-  return fallback;
-}
-
-export function toInt(
-  value: unknown,
-  fallback: number,
-  min: number,
-  max: number
-): number {
-  const parsed = Number.parseInt(String(value ?? ''), 10);
-  if (!Number.isFinite(parsed)) {
-    return fallback;
-  }
-  return Math.min(Math.max(parsed, min), max);
-}
-
-export function firstJsonStart(text: string): number {
-  const firstObject = text.indexOf('{');
-  const firstArray = text.indexOf('[');
-  if (firstObject === -1) return firstArray;
-  if (firstArray === -1) return firstObject;
-  return Math.min(firstObject, firstArray);
-}
-
-export function parseJsonOutput(raw: unknown): unknown {
-  const trimmed = String(raw || '').trim();
-  if (!trimmed) {
-    return null;
-  }
-  try {
-    return JSON.parse(trimmed);
-  } catch {
-    const start = firstJsonStart(trimmed);
-    if (start < 0) {
-      return null;
-    }
-    try {
-      return JSON.parse(trimmed.slice(start));
-    } catch {
-      return null;
-    }
-  }
-}
-
-export function parseTargetMeta(target: unknown): Record<string, unknown> {
-  if (typeof target !== 'string') {
-    return {};
-  }
-  const trimmed = target.trim();
-  if (!trimmed) {
-    return {};
-  }
-  if (!trimmed.startsWith('{')) {
-    return { message: trimmed };
-  }
-  const parsed = parseJsonOutput(trimmed);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    return {};
-  }
-  return parsed as Record<string, unknown>;
-}
+// asOptionalString, toBool, toInt, firstJsonStart, parseJsonOutput,
+// parseTargetMeta are re-exported from plugin-utils.ts above.
 
 export function resolveServiceCommand(): string {
   return (
@@ -468,80 +404,8 @@ function parseServiceUrlMapFromEnv(): Array<{ keyword: string; url: string }> {
   return out;
 }
 
-export function resolveAgentBinary(): string {
-  const candidates: string[] = [
-    asOptionalString(process.env.PINOKIO_AGENT_BIN),
-    'pinokio-agent',
-    '/usr/local/bin/pinokio-agent',
-    './target/debug/pinokio-agent',
-    './target/release/pinokio-agent'
-  ].filter((item): item is string => Boolean(item));
-
-  for (const candidate of candidates) {
-    const probe = spawnSync(candidate, ['--version'], {
-      encoding: 'utf8',
-      env: process.env
-    });
-    if (!probe.error && probe.status === 0) {
-      return candidate;
-    }
-  }
-  return 'pinokio-agent';
-}
-
-export function buildContainerLlmEnv(): Record<string, string | undefined> {
-  const env: Record<string, string | undefined> = { ...process.env };
-  const childHome =
-    asOptionalString(env.PINOKIO_CHILD_HOME) || '/var/lib/pinokio-oauth';
-  const childBins = [`${childHome}/.npm-global/bin`, `${childHome}/.local/bin`];
-  const pathValue = typeof env.PATH === 'string' ? env.PATH : '';
-  env.PINOKIO_CHILD_MODE = '1';
-  env.PINOKIO_CHILD_HOME = childHome;
-  env.PATH = `${childBins.join(':')}${pathValue ? `:${pathValue}` : ''}`;
-  return env;
-}
-
-export function runChatLlm(params: {
-  profile: string;
-  prompt: string;
-  timeoutMs?: number;
-}): ChatLlmResult {
-  const timeoutMs = toInt(params.timeoutMs, 120000, 10000, 600000);
-  const agentBin = resolveAgentBinary();
-  const out = spawnSync(agentBin, ['llm', '--profile', params.profile, '--prompt', params.prompt], {
-    encoding: 'utf8',
-    env: buildContainerLlmEnv(),
-    timeout: timeoutMs,
-    maxBuffer: 1024 * 1024 * 8
-  });
-
-  if (out.error) {
-    if ((out.error as NodeJS.ErrnoException).code === 'ETIMEDOUT') {
-      throw new Error(`chat llm timed out after ${timeoutMs}ms`);
-    }
-    throw new Error(`failed to run ${agentBin} llm: ${out.error.message}`);
-  }
-  if (out.status !== 0) {
-    throw new Error(
-      `chat llm command failed (${out.status}): ${(out.stderr || out.stdout || '').trim()}`
-    );
-  }
-  const parsed = parseJsonOutput(out.stdout);
-  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-    throw new Error('chat llm command returned non-JSON output');
-  }
-  const payload = parsed as Record<string, unknown>;
-  const text = asOptionalString(payload.text);
-  if (!text) {
-    throw new Error('chat llm response was empty');
-  }
-  return {
-    text,
-    profile: params.profile,
-    provider: asOptionalString(payload.provider) || 'unknown',
-    model: asOptionalString(payload.model) || 'unknown'
-  };
-}
+// resolveAgentBinary, buildContainerLlmEnv, runChatLlm are re-exported
+// from plugin-utils.ts above.
 
 export function shouldUseUnsafeBrowser(targetMeta: Record<string, unknown>): boolean {
   return toBool(targetMeta.unsafe_browser, false) || toBool(targetMeta.unsafe_mode, false);

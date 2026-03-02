@@ -6,14 +6,9 @@ import {
   toBool,
   shouldUseUnsafeBrowser
 } from './playwright-common.ts';
+import { normalizeAction } from './plugin-utils.ts';
 
 const SUPPORTED_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
-
-function normalizeAction(value: unknown): string {
-  return String(value || '')
-    .trim()
-    .toLowerCase();
-}
 
 function normalizeDesiredAction(value: unknown, fallback: string): string {
   const action = normalizeAction(value || fallback);

@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import type { SpawnSyncReturns } from 'node:child_process';
 import { pluginContext, respond, fail } from '../sdk/typescript/pinokio-sdk.ts';
 import type { PluginRequest } from '../sdk/typescript/pinokio-sdk.ts';
+import { parseTargetMeta, normalizeAction } from './plugin-utils.ts';
 
 const SUPPORTED_ACTIONS: Set<string> = new Set(['create', 'read', 'update', 'delete']);
 const DEFAULT_READ_SQL: string =
@@ -20,33 +21,6 @@ interface SqlResult {
 	stderr: string;
 }
 
-function parseTargetMeta(target: unknown): Record<string, unknown> {
-	if (typeof target !== 'string') {
-		return {};
-	}
-	const trimmed: string = target.trim();
-	if (!trimmed) {
-		return {};
-	}
-	if (!trimmed.startsWith('{')) {
-		return { sql: trimmed };
-	}
-	try {
-		const parsed: unknown = JSON.parse(trimmed);
-		if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-			return parsed as Record<string, unknown>;
-		}
-		return {};
-	} catch {
-		return { sql: trimmed };
-	}
-}
-
-function normalizeAction(value: unknown): string {
-	return String(value || '')
-		.trim()
-		.toLowerCase();
-}
 
 function isReadOnlySql(sql: string): boolean {
 	return /^(select|with|show|explain)\b/i.test(sql.trim());
